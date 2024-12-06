@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "video-host"
+version = "0.1.0"
+description = ""
+authors = ["Den Voronin"]
+license = "MIT"
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.13"
+fastapi = "^0.115.5"
+uvicorn = {extras = ["standard"], version = "^0.32.1"}
+python-multipart = "^0.0.19"
+sqlalchemy = "^2.0.36"
+redis = "^5.2.0"
+databases = "^0.9.0"  # Для асинхронной работы с БД
+aiomysql = "^0.1.1"  # Асинхронный драйвер для MySQL
+celery = "^5.3.4"  # Для управления фоновыми задачами
+kombu = "^5.2.0"  # Зависимость для Celery и Redis
+psutil = "^5.9.4"  # Для мониторинга использования процессора и памяти
+retrying = "^1.3.3"  # Для повторных попыток в случае неудачи
+aiobotocore = "^2.5.0"  # Для асинхронной работы с AWS S3
+aiofiles = "^23.1.0"  # Для асинхронного чтения файлов
+greenlet = "^3.1.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.4"
+pytest-asyncio = "^0.21.0"  # Для тестирования асинхронных функций
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

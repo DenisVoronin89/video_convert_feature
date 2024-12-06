@@ -1,0 +1,48 @@
+1. Запуск MySQL
+
+2. Запуск Redis
+
+3. Настройка S3 (MinIO для локальной эмуляции)
+
+Установите MinIO:
+
+brew install minio
+
+Запустите MinIO: После установки запустите MinIO с командой:
+
+minio server /tmp/minio_data
+
+Перейдите по этому адресу в браузере, чтобы попасть в интерфейс MinIO.
+http://localhost:9000
+
+Введите логин и пароль:
+
+    Root User: minioadmin
+    Root Password: minioadmin
+
+Создайте корзину в MinIO:
+
+    В интерфейсе MinIO создайте корзину, например, video_service.
+
+Настройки подключения S3: В коде укажите ваши данные для подключения к MinIO:
+
+S3_BUCKET_NAME = "video-service"
+AWS_DEFAULT_REGION = "us-east-1"
+REDIS_BROKER_URL = "redis://localhost:6379/0"
+AWS_ACCESS_KEY_ID = "fTVbK2m426XPEQh6lSkQ"
+AWS_SECRET_ACCESS_KEY = "wp005zugmCacEqqsCkHIWZaszU1yXFGNEQXW8y8T"
+
+Эти данные можно настроить в интерфейсе MinIO, ключи для теста генерятся в интерфейсе автоматом
+
+4. ставим клиент AWS
+
+    brew install awscli
+
+5. Установка и проверка FFmpeg
+
+6. Ставим зависимости
+
+7. Запускаем приложение: uvicorn main:app --reload
+
+8. Тестим через Сваггер http://127.0.0.1:8000/docs
+
