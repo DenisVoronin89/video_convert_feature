@@ -1,238 +1,253 @@
-import subprocess
+import ffmpeg
 import os
 import logging
-import time
 from uuid import uuid4
-from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
-from databases import Database
+from fastapi import FastAPI, UploadFile, HTTPException, BackgroundTasks
 from aiobotocore.session import get_session
-from celery import Celery
-import asyncio
-import psutil
 import aiofiles
 import io
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import MetaData, Table, Column, Integer, String
+import time
 
-# Логирование
-logging.basicConfig(level=logging.INFO, handlers=[
-    logging.FileHandler("logs.log"),  # Запись логов в файл
-    logging.StreamHandler()  # Также выводим в консоль
-])
+
+# Настройка логов
+log_level = logging.DEBUG
+log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+log_file = 'video_service.log'
+file_handler = logging.FileHandler(log_file)
+file_handler.setFormatter(log_formatter)
 logger = logging.getLogger(__name__)
+logger.setLevel(log_level)
+logger.addHandler(file_handler)
 
-# Для разработки: конфигурации из переменных окружения
-# В продакшене эти переменные будут вынесены в безопасное место
-# Доступ к AWS будет осуществляться через IAM (Identity and Access Management)
-DATABASE_URL = "mysql+aiomysql://admin:admin1224@localhost:3306/video_service"
+# Конфиги для разработки и тестирования (НЕ ДЛЯ ПРОДАКШЕНА)
+DATABASE_URL = "postgresql+asyncpg://admin:admin1224@localhost/sst_video_app"
 S3_BUCKET_NAME = "video-service"
-AWS_DEFAULT_REGION = "us-east-1"
-REDIS_BROKER_URL = "redis://localhost:6379/0"
-AWS_ACCESS_KEY_ID = "fTVbK2m426XPEQh6lSkQ"
-AWS_SECRET_ACCESS_KEY = "wp005zugmCacEqqsCkHIWZaszU1yXFGNEQXW8y8T"
+AWS_REGION = "us-east-1"
+AWS_ACCESS_KEY_ID = "SuOpyKZ54797K7y9vvaJ"
+AWS_SECRET_ACCESS_KEY = "6NBChpstlgkjvRTawqKRuNvGBVNRG8EWIPCu4Izl"
 
-# БД конфиги (для асинхронной работы)
-database = Database(DATABASE_URL)
+PREVIEW_DURATION = 5 # Длина превью вынесена в переменную, так проще потом настраивать будет как нам надо
+
+# Конфиги БД
+engine = create_async_engine(DATABASE_URL)
+SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 metadata = MetaData()
 
-# Асинк подключение к БД
-engine = create_async_engine(DATABASE_URL, echo=True)
-
-SessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-# Конфиги для AWS S3
+# Сессия для работы с AWS S3
 s3_session = get_session()
 
-# Конфиги для Celery, брокер Редиска
-celery_app = Celery("tasks", broker=REDIS_BROKER_URL)
+# Таблица
+videos = Table(
+    "videos", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("video_url", String(255)),
+    Column("preview_url", String(255))
+)
+
 
 app = FastAPI()
 
-# Модель для хранения ссылок на видео и превью в БД
-videos_table = Table(
-    "videos",
-    metadata,
-    Column("id", Integer, primary_key=True, index=True),
-    Column("video_url", String(255), index=True),
-    Column("preview_url", String(255)),
-)
 
-# Создание таблицы, если она не существует
 @app.on_event("startup")
 async def startup():
+    """Функция запуска приложения"""
     async with engine.begin() as conn:
         await conn.run_sync(metadata.create_all)
+    logger.info("Приложение успешно запущено. Соединение с базой данных установлено.")
 
 
-async def run_ffmpeg_command(command: list):
-    """ Команда FFmpeg с мониторингом использования ресурсов системы"""
-    start_time = time.time() # Начальное время выполнения
-    cpu_start = psutil.cpu_percent() # Загрузка CPU до
-    mem_start = psutil.virtual_memory().percent # Загрузка памяти до
+@app.on_event("shutdown")
+async def shutdown():
+    """Функция завершения работы приложения"""
+    await engine.dispose()
+    logger.info("Приложение завершило работу. Соединение с базой данных закрыто.")
 
+
+async def create_temp_dir():
+    """Создание временной директории (temp) для файлов если ее нет"""
     try:
-        logger.info(f"Running FFmpeg command: {' '.join(command)}") # Лог запуска команды
-        # Запуск команды FFmpeg
-        process = await asyncio.create_subprocess_exec(*command, stdout=subprocess.PIPE, stderr=subprocess.PIPE) # Распаковка списка аргументов в subprocess, захват станд вывода и ошибок
-        stdout, stderr = await process.communicate() # Ожидание завершения процесса и захват вывода
-
-        if process.returncode != 0: # Проверка завершения процесса (0 - успех)
-            logger.error(f"FFmpeg error: {stderr.decode()}") # Лог ошибки и выброс исключения
-            raise HTTPException(status_code=500, detail=f"FFmpeg error: {stderr.decode()}")
-
-        logger.info(f"FFmpeg output: {stdout.decode()}") # Лог вывода команды
-        end_time = time.time() # Показания времени после выполнения команды
-        cpu_end = psutil.cpu_percent() # Загрузка CPU после
-        mem_end = psutil.virtual_memory().percent # Загрузка памяти после
-
-        logger.info(f"Execution time: {end_time - start_time} seconds") # Лог времени выполнения
-        logger.info(f"CPU Usage: {cpu_end - cpu_start}%") # Лог разницы в загрузке CPU
-        logger.info(f"Memory Usage: {mem_end - mem_start}%") # Лог разницы в загрузке памяти
-
-        return stdout.decode()
-
+        temp_dir = "./temp"
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir)
+            logger.info(f"Создана временная директория: {temp_dir}")
+        else:
+            logger.info(f"Временная директория уже существует: {temp_dir}")
     except Exception as e:
-        logger.error(f"Error executing FFmpeg command: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error executing FFmpeg command: {str(e)}")
+        logger.error(f"Ошибка при создании временной директории: {e}")
+        raise RuntimeError("Не удалось создать временную директорию")
 
 
-async def convert_to_h264(input_file: str, output_file: str):
-    """Конвертация видео в формат H264"""
-    logger.info(f"Converting {input_file} to H264 format.") # Лог начала конвертации
-    command = [
-        "ffmpeg", # Обращение к FFmpeg
-        "-i", input_file, # Входной файл
-        "-vcodec", "libx264", # Видеокодек H264
-        "-acodec", "aac", # Аудиокодек AAC
-        output_file # Путь для сохранения выходного файла
-    ]
-    await run_ffmpeg_command(command) # Запуск команды
+async def save_file_to_temp(file: UploadFile):
+    """Сохранение видео в папку temp"""
+    try:
+        await create_temp_dir()
+        temp_path = f"./temp/{uuid4()}_{file.filename}"
+        async with aiofiles.open(temp_path, "wb") as out_file:
+            await out_file.write(await file.read())
+        file_size = get_file_size(temp_path)
+        logger.info(f"Файл сохранён во временной директории: {temp_path} (Размер: {file_size:.2f} MB)")
+        return temp_path
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении файла во временной директории: {e}")
+        raise RuntimeError("Не удалось сохранить файл во временной директории")
 
 
-async def extract_preview(input_file: str, output_file: str, start_time: float, duration: float):
+def get_file_size(path):
+    """Получение веса файла (в Мб)"""
+    size = os.path.getsize(path) / (1024 * 1024)
+    logger.debug(f"Размер файла {path}: {size:.2f} MB")
+    return size
+
+
+def convert_to_vp9(input_path, output_path, logger):
+    """Конвертация видео с сохранением качества и минимизацией увеличения размера"""
+    start_time = time.time()
+    try:
+        logger.info(f"Запуск конвертации видео в VP9: {input_path} -> {output_path}")
+        (
+            ffmpeg
+            .input(input_path)
+            .output(output_path, vcodec='libvpx-vp9', acodec='libopus', crf=30, audio_bitrate='96k')
+            .overwrite_output()
+            .run(capture_stdout=True, capture_stderr=True)
+        )
+        elapsed_time = time.time() - start_time  # Замеряем время обработки
+        output_size = get_file_size(output_path)
+        logger.info(
+            f"Конвертация в VP9 завершена: {output_path} (Размер: {output_size:.2f} MB, Время: {elapsed_time:.2f} сек.)")
+    except ffmpeg.Error as e:
+        logger.error(f"Ошибка FFmpeg при конвертации: {e.stderr.decode()}")
+        raise RuntimeError("Не удалось конвертировать видео в VP9")
+    logger.info(f"Видео успешно обработано: {output_path} (Размер: {output_size:.2f} MB)")
+
+
+def extract_preview(input_path, output_path, duration=PREVIEW_DURATION, logger=None):
     """Извлечение превью"""
-    logger.info(f"Extracting preview from {input_file} starting at {start_time} seconds for {duration} seconds.")
-    command = [
-        "ffmpeg",
-        "-i", input_file,
-        "-ss", str(start_time), # Время начала превью
-        "-t", str(duration), # Длительность
-        "-c:v", "libx264",
-        "-c:a", "aac",
-        output_file
-    ]
-    await run_ffmpeg_command(command)
-
-
-async def upload_to_s3(file_path: str, s3_key: str):
-    """Загрузка видео на AWS S3"""
+    start_time = time.time()
     try:
-        logger.info(f"Uploading {file_path} to S3 as {s3_key}.")
-        start_time = time.time()
-        cpu_start = psutil.cpu_percent()
-        mem_start = psutil.virtual_memory().percent
-
-        # Стриминговая загрузка через на MinIO (локальный тестовый сервак AWS S3)
-        async with s3_session.create_client(
-                "s3", # Обязательный параметр, указывающий на то что работаем именно с S3
-                region_name=AWS_DEFAULT_REGION,
-                aws_access_key_id=AWS_ACCESS_KEY_ID,
-                aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-                endpoint_url="http://localhost:9000"  # Указываем правильный endpoint для MinIO (запускаем тестово MinIO сервак потому пока так)
-        ) as client:
-            # Открытие файла с использованием aiofiles
-            async with aiofiles.open(file_path, 'rb') as file_data:
-                # Чтение содержимого файла в буфер
-                file_buffer = io.BytesIO(await file_data.read())
-
-                # Стриминговая загрузка файла на S3
-                await client.put_object(
-                    Bucket=S3_BUCKET_NAME,
-                    Key=s3_key,
-                    Body=file_buffer,
-                )
-            logger.info(f"Uploaded {file_path} to S3 as {s3_key}")
-
-        end_time = time.time()
-        cpu_end = psutil.cpu_percent()
-        mem_end = psutil.virtual_memory().percent
-
-        logger.info(f"Execution time: {end_time - start_time} seconds")
-        logger.info(f"CPU Usage: {cpu_end - cpu_start}%")
-        logger.info(f"Memory Usage: {mem_end - mem_start}%")
-
-    except Exception as e:
-        logger.error(f"Error uploading {file_path} to S3: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error uploading to S3: {str(e)}")
+        logger.info(f"Извлечение превью из видео: {input_path} -> {output_path} (Длительность: {duration} сек.)")
+        (
+            ffmpeg
+            .input(input_path, ss=0, t=duration)
+            .output(output_path, vcodec='libvpx-vp9', acodec='libopus')
+            .overwrite_output()
+            .run(capture_stdout=True, capture_stderr=True)
+        )
+        elapsed_time = time.time() - start_time
+        preview_size = get_file_size(output_path)
+        logger.info(
+            f"Извлечение превью завершено: {output_path} (Размер: {preview_size:.2f} MB, Время: {elapsed_time:.2f} сек.)")
+    except ffmpeg.Error as e:
+        logger.error(f"Ошибка FFmpeg при извлечении превью: {e.stderr.decode()}")
+        raise RuntimeError("Не удалось извлечь превью")
+    logger.info(f"Превью успешно извлечено: {output_path} (Размер: {preview_size:.2f} MB)")
 
 
-@app.post("/upload_video/") # Эндпоинт для загрузки видео
-async def upload_video(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def upload_to_s3(file_path, s3_key, logger):
+    """Стримминговая загрузка видео в S3"""
     try:
-        # Проверка типа файла (должен быть видео)
-        if not file.content_type.startswith('video/'):
-            logger.warning(f"Uploaded file {file.filename} is not a video.")
-            raise HTTPException(status_code=422, detail="Uploaded file is not a video.")
+        logger.info(f"Загрузка файла в S3: {file_path} -> {s3_key}")
 
-        # Сохранение видео на сервере
-        file_path = f"/tmp/{file.filename}"
-        async with aiofiles.open(file_path, "wb") as f:
-            await f.write(await file.read())
+        async with aiofiles.open(file_path, 'rb') as f:
+            file_stream = io.BytesIO(await f.read())
 
-        # Запуск фона для обработки видео
-        background_tasks.add_task(process_video_task, file_path)
-        return {"message": "Video is being processed in the background."}
+        logger.debug(f"Тип данных file_stream: {type(file_stream)}")
 
+        # Создание сессии для работы с S3
+        async with get_session().create_client(
+            "s3",
+            region_name=AWS_REGION,
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            endpoint_url="http://localhost:9000",
+        ) as s3_client:
+            # Стриминговая загрузка файла
+            response = await s3_client.put_object(
+                Bucket=S3_BUCKET_NAME,
+                Key=s3_key,
+                Body=file_stream,
+            )
+
+            if response['ResponseMetadata']['HTTPStatusCode'] != 200:
+                raise RuntimeError("Ошибка при загрузке файла в S3: некорректный код ответа")
+
+        logger.info(f"Файл успешно загружен в S3: {s3_key}")
     except Exception as e:
-        logger.error(f"Error uploading video: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error uploading video: {str(e)}")
-
-async def process_video_task(input_file: str):
-    """Запуск задач"""
-    try:
-        output_file = f"{str(uuid4())}.mp4"
-        preview_file = f"{str(uuid4())}_preview.mp4"
-
-        # Запуск асинхронных задач через asyncio
-        logger.info(f"Processing video: {input_file}")
-        await convert_to_h264(input_file, output_file)
-        await extract_preview(input_file, preview_file, 0, 4)
-
-        s3_key_video = f"videos/{output_file}"
-        s3_key_preview = f"previews/{preview_file}"
-
-        await upload_to_s3(output_file, s3_key_video)
-        await upload_to_s3(preview_file, s3_key_preview)
-
-        # Очистка временных файлов после успешной загрузки
-        os.remove(output_file)
-        os.remove(preview_file)
-        os.remove(input_file)
-
-        logger.info(f"Temporary files {output_file}, {preview_file}, and {input_file} deleted.")
-
-        # Сохранение информации в БД
-        await save_video_to_db(s3_key_video, s3_key_preview)
-
-    except Exception as e:
-        logger.error(f"Error processing video: {str(e)}")
+        logger.error(f"Ошибка при загрузке файла в S3: {e}")
+        raise RuntimeError("Не удалось загрузить файл в S3")
 
 
-async def save_video_to_db(s3_key_video: str, s3_key_preview: str):
-    """Сохранение ссылок на AWS S3 в БД"""
+async def save_video_to_db(video_url, preview_url, logger):
+    """Сохранение ссылок на видео и превью в БД"""
     try:
         async with SessionLocal() as session:
-            new_video = videos_table.insert().values(
-                video_url=f"https://{S3_BUCKET_NAME}.s3.{AWS_DEFAULT_REGION}.amazonaws.com/{s3_key_video}",
-                preview_url=f"https://{S3_BUCKET_NAME}.s3.{AWS_DEFAULT_REGION}.amazonaws.com/{s3_key_preview}"
-            )
-            await session.execute(new_video)
+            video = videos.insert().values(video_url=video_url, preview_url=preview_url)
+            await session.execute(video)
             await session.commit()
-            logger.info(f"Video data saved to DB: {s3_key_video} and {s3_key_preview}")
+            logger.info(f"Видео и превью успешно сохранены в базе данных: {video_url}, {preview_url}")
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении видео в базе данных: {e}")
+        raise RuntimeError("Не удалось сохранить видео в базе данных")
+
+
+# Эндпоинт для загрузки видео
+@app.post("/upload_video/")
+async def upload_video(file: UploadFile, background_tasks: BackgroundTasks):
+    """Загрузка и обработка видео."""
+    logger.info("Начало обработки загрузки видео")
+    temp_path = None
+    converted_video_path = None
+    preview_path = None
+    try:
+        # Сохранение видео
+        temp_path = await save_file_to_temp(file)
+
+        # Создание уникального имени для конвертированного видео и превью
+        converted_video_path = f"./temp/converted_{uuid4()}.webm"
+        preview_path = f"./temp/preview_{uuid4()}.webm"
+
+        # Добавление задач в фон
+        background_tasks.add_task(convert_to_vp9, temp_path, converted_video_path, logger)
+        background_tasks.add_task(extract_preview, converted_video_path, preview_path, duration=PREVIEW_DURATION, logger=logger)
+
+        # Загрузка в S3 (работа в фоне)
+        video_s3_key = f"videos/{uuid4()}_converted.webm"
+        preview_s3_key = f"previews/{uuid4()}_preview.webm"
+        background_tasks.add_task(upload_to_s3, converted_video_path, video_s3_key, logger)
+        background_tasks.add_task(upload_to_s3, preview_path, preview_s3_key, logger)
+
+        # Сохранение видео в БД (работа в фоне)
+        video_url = f"http://localhost:9000/{S3_BUCKET_NAME}/{video_s3_key}"
+        preview_url = f"http://localhost:9000/{S3_BUCKET_NAME}/{preview_s3_key}"
+        background_tasks.add_task(save_video_to_db, video_url, preview_url, logger)
+
+        # Добавление задачи для удаления временных файлов в фон (после завершения всех операций)
+        background_tasks.add_task(delete_temp_files, temp_path, converted_video_path, preview_path)
+
+        # Немедленно возвращает ответ клиенту TODO после успешной конвертации клиенту пуш уведомление какое то надо выкидывать (Спросить у Евгения на созвоне)
+        logger.info(f"Задача по обработке видео добавлена в фон: {video_url}, {preview_url}")
+        return {"message": "Видео успешно загружено и обрабатывается в фоне", "video_url": video_url, "preview_url": preview_url}
 
     except Exception as e:
-        logger.error(f"Error saving video data to DB: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error saving video data to DB.")
+        logger.error(f"Ошибка при обработке видео: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при обработке видео: {e}")
 
+
+async def delete_temp_files(temp_path, converted_video_path, preview_path):
+    """Удаление временных файлов после завершения всех операций."""
+    try:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+            logger.info(f"Удален временный файл: {temp_path}")
+        if converted_video_path and os.path.exists(converted_video_path):
+            os.remove(converted_video_path)
+            logger.info(f"Удален временный файл конвертированного видео: {converted_video_path}")
+        if preview_path and os.path.exists(preview_path):
+            os.remove(preview_path)
+            logger.info(f"Удален временный файл превью: {preview_path}")
+    except Exception as e:
+        logger.error(f"Ошибка при удалении временных файлов: {e}")
 

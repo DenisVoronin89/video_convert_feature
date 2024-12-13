@@ -1,8 +1,6 @@
-1. Запуск MySQL
+1. Запуск PostgreSQL
 
-2. Запуск Redis
-
-3. Настройка S3 (MinIO для локальной эмуляции)
+2. Настройка S3 (MinIO для локальной эмуляции)
 
 Установите MinIO:
 
@@ -29,20 +27,20 @@ http://localhost:9000
 S3_BUCKET_NAME = "video-service"
 AWS_DEFAULT_REGION = "us-east-1"
 REDIS_BROKER_URL = "redis://localhost:6379/0"
-AWS_ACCESS_KEY_ID = "fTVbK2m426XPEQh6lSkQ"
-AWS_SECRET_ACCESS_KEY = "wp005zugmCacEqqsCkHIWZaszU1yXFGNEQXW8y8T"
+AWS_ACCESS_KEY_ID = "SuOpyKZ54797K7y9vvaJ"
+AWS_SECRET_ACCESS_KEY = "6NBChpstlgkjvRTawqKRuNvGBVNRG8EWIPCu4Izl"
 
 Эти данные можно настроить в интерфейсе MinIO, ключи для теста генерятся в интерфейсе автоматом
 
-4. ставим клиент AWS
+3. ставим клиент AWS
 
     brew install awscli
 
-5. Установка и проверка FFmpeg
+4. Установка и проверка FFmpeg
 
-6. Ставим зависимости
+5. Ставим зависимости
 
-7. Запускаем приложение: uvicorn main:app --reload
+6. Запускаем приложение: uvicorn main:app --reload
 
-8. Тестим через Сваггер http://127.0.0.1:8000/docs
+7. Тестим через Сваггер http://127.0.0.1:8000/docs
 
