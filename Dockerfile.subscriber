@@ -1,0 +1,26 @@
+# Используем официальный образ Python 3.13
+FROM python:3.13-slim
+
+# Устанавливаем рабочую директорию внутри контейнера
+WORKDIR /app
+
+
+
+# Устанавливаем curl, build-essential и другие зависимости, включая libpq-dev для psycopg2
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копируем файл с зависимостями (requirements.txt)
+COPY requirements.txt /app/
+
+# Устанавливаем зависимости с помощью pip
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Копируем все остальные файлы проекта
+COPY . /app/
+
+# Запускаем подписчика
+CMD ["python3", "video_handle/video_handler_subscriber.py"]

@@ -4,6 +4,10 @@
 
 import random
 
+from logging_config import get_logger
+
+logger = get_logger()
+
 # Моковые метамаск кошельки
 mock_wallets = {
     "0x6a2b35e8f8b790e41333d9e28f4e96c4168b34f8",  # Пример 1
@@ -16,11 +20,13 @@ mock_wallets = {
     "0x1b671b03cc4ed7d1e8c627509517a3d79c1c2f4d",  # Пример 8
 }
 
-def get_random_wallet():
-    """Возвращает случайный метамаск кошелек из набора."""
+
+async def get_random_wallet():
+    """Получения случайного метамаск кошелька для тестов"""
     wallet_number = random.choice(list(mock_wallets))
+
+    logger.info(f"Получен кошелек с номером: {wallet_number}")
+
     return wallet_number
 
-# Пример использования
-wallet_number = get_random_wallet()
-print(f"Выбранный кошелек: {wallet_number}")
+

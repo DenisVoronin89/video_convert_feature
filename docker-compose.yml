@@ -1,0 +1,85 @@
+
+services:
+  # Контейнер для Redis
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - mynetwork
+    volumes:
+      - redis_data:/data
+
+  # Контейнер для MinIO
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    environment:
+      MINIO_ACCESS_KEY: minioaccesskey
+      MINIO_SECRET_KEY: miniosecretkey
+    ports:
+      - "9000:9000"
+    command: server /data
+    networks:
+      - mynetwork
+    volumes:
+      - minio_data:/data
+
+  # Контейнер для PostgreSQL
+  postgres:
+    image: postgres:latest
+    container_name: postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin1224
+      POSTGRES_DB: sst_video_app
+    ports:
+      - "5432:5432"
+    networks:
+      - mynetwork
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Контейнер для приложения (FastAPI)
+  app:
+    build:
+      context: .  # Используем корневую папку для сборки
+      dockerfile: Dockerfile.app  # Указываем путь к Dockerfile для приложения
+    container_name: fastapi_app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+      - minio
+      - postgres
+    networks:
+      - mynetwork
+    volumes:
+      - ./video_service.log:/video_service.log
+
+  # Контейнер для подписчика
+  video_handler_subscriber:
+    build:
+      context: .  # Строим из корня проекта
+      dockerfile: Dockerfile.subscriber  # Указываем путь к Dockerfile для подписчика
+    container_name: video_handler_subscriber
+    command: python3 video_handle/video_handler_subscriber.py
+    depends_on:
+      - redis
+      - minio
+      - postgres
+    networks:
+      - mynetwork
+    volumes:
+      - ./video_service.log:/app/video_service.log
+
+networks:
+  mynetwork:
+    driver: bridge
+
+volumes:
+  redis_data:
+  minio_data:
+  postgres_data:
