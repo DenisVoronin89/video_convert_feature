@@ -55,8 +55,11 @@ async def save_image_to_temp(file: UploadFile, created_dirs: dict):
             logger.error("Ошибка: директория 'image_temp' не найдена в конфигурации.")
             raise HTTPException(status_code=500, detail="Директория 'image_temp' не найдена в конфигурации.")
 
+        # Формирование имени файла без пробелов (замена пробелов на подчеркивания)
+        sanitized_image_filename = file.filename.replace(" ", "_")
+
         # Формирование пути к файлу
-        temp_image_path = os.path.join(image_temp_path, f"{uuid4()}_{file.filename}")
+        temp_image_path = os.path.join(image_temp_path, f"{uuid4()}_{sanitized_image_filename}")
 
         # Сохранение изображения
         async with aiofiles.open(temp_image_path, "wb") as out_file:
@@ -72,6 +75,7 @@ async def save_image_to_temp(file: UploadFile, created_dirs: dict):
         raise HTTPException(status_code=500, detail="Не удалось сохранить изображение во временной директории")
 
 
+
 async def save_video_to_temp(file: UploadFile, created_dirs: dict):
     """Сохранение видео в папку temp"""
     try:
@@ -82,8 +86,11 @@ async def save_video_to_temp(file: UploadFile, created_dirs: dict):
             logger.error("Ошибка: директория 'video_temp' не найдена в конфигурации.")
             raise HTTPException(status_code=500, detail="Директория 'video_temp' не найдена в конфигурации.")
 
+        # Формирование имени файла без пробелов (замена пробелов на подчеркивания)
+        sanitized_video_filename = file.filename.replace(" ", "_")
+
         # Формирование пути к файлу
-        temp_video_path = os.path.join(temp_video_path, f"{uuid4()}_{file.filename}")
+        temp_video_path = os.path.join(temp_video_path, f"{uuid4()}_{sanitized_video_filename}")
 
         # Сохранение видео
         async with aiofiles.open(temp_video_path, "wb") as out_file:
