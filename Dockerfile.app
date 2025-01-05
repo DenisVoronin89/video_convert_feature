@@ -20,8 +20,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копируем все остальные файлы проекта
 COPY . /app/
 
-# Открываем порт 8000
-EXPOSE 8000
+# Открываем порты
+EXPOSE 5432 6379 9000 8000
 
 # Запускаем приложение
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

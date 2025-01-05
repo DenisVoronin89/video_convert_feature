@@ -10,7 +10,7 @@ from logging_config import get_logger
 logger = get_logger()
 
 def get_file_size(file_path):
-    """Получаем размер файла"""
+    """Получение размера файла"""
     try:
         return os.path.getsize(file_path) / (1024 * 1024)  # В мегабайтах
     except Exception as e:
@@ -22,7 +22,7 @@ async def delete_temp_files(temp_video_path, temp_image_path, converted_video_pa
     try:
         current_time = time.time()
 
-        # Проверяем и удаляем файлы старше 48 часов
+        # Проверка и удаление файлов старше 48 часов
         def remove_file_if_old(file_path):
             if file_path and os.path.exists(file_path):
                 file_age = current_time - os.path.getmtime(file_path)
@@ -34,7 +34,7 @@ async def delete_temp_files(temp_video_path, temp_image_path, converted_video_pa
             else:
                 logger.warning(f"Файл не существует: {file_path}")
 
-        # Проверяем файлы на старение и удаляем
+        # Проверка файлов на старость и удаление
         remove_file_if_old(temp_video_path)
         remove_file_if_old(temp_image_path)
         remove_file_if_old(converted_video_path)
@@ -57,7 +57,7 @@ def schedule_file_cleanup():
 
         logger.info("Задача удаления файлов запланирована на каждый день в 00:00")
 
-        # Стартуем планировщик
+        # Старт планировщика
         scheduler.start()
 
     except Exception as e:
@@ -67,7 +67,7 @@ def schedule_file_cleanup():
 async def delete_old_files_task():
     """Задача для удаления старых файлов"""
     try:
-        # Указываем пути файлов, которые нужно проверять
+        # Пути файлов, которые нужно проверять
         temp_video_path = "./video_temp/temp_video_file.mp4"
         temp_image_path = "./video_temp/temp_image_file.jpg"
         converted_video_path = "./video_temp/converted_video_file.webm"

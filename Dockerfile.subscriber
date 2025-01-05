@@ -1,26 +1,120 @@
 # Используем официальный образ Python 3.13
 FROM python:3.13-slim
 
-# Устанавливаем рабочую директорию внутри контейнера
+# Устанавливаем рабочую директорию
 WORKDIR /app
 
-
-
-# Устанавливаем curl, build-essential и другие зависимости, включая libpq-dev для psycopg2
+# Обновляем систему и устанавливаем базовые инструменты
 RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
     libpq-dev \
+    git \
+    meson \
+    ninja-build \
+    cmake \
+    yasm \
+    nasm \
+    pkg-config \
+    libtool \
+    autoconf \
+    automake \
+    texinfo \
+    wget \
+    zlib1g-dev \
+    libbz2-dev \
+    liblzma-dev \
+    libssl-dev \
+    libx264-dev \
+    libx265-dev \
+    libvpx-dev \
+    libvorbis-dev \
+    libopus-dev \
+    libsrt-openssl-dev \
+    libtheora-dev \
+    libass-dev \
+    libvidstab-dev \
+    libwebp-dev \
+    libxml2-dev \
+    libfribidi-dev \
+    libfontconfig1-dev \
+    libfreetype6-dev \
+    libmp3lame-dev \
+    libgnutls28-dev \
+    libmysofa-dev \
+    libsdl2-dev \
+    libxcb-shm0-dev \
+    libxcb-xfixes0-dev \
+    libxcb1-dev \
+    libx11-dev \
+    libxext-dev \
+    libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Копируем файл с зависимостями (requirements.txt)
-COPY requirements.txt /app/
+# Установка libfdk-aac из исходников
+RUN git clone https://github.com/mstorsjo/fdk-aac.git /fdk-aac && \
+    cd /fdk-aac && \
+    autoreconf -fiv && \
+    ./configure && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig
 
-# Устанавливаем зависимости с помощью pip
+# Сборка и установка libvmaf из исходников
+RUN git clone https://github.com/Netflix/vmaf.git /vmaf && \
+    cd /vmaf/libvmaf && \
+    meson setup build --buildtype release && \
+    meson compile -C build && \
+    meson install -C build && \
+    ldconfig
+
+# Скачивание и сборка FFmpeg
+RUN git clone https://git.ffmpeg.org/ffmpeg.git /ffmpeg && \
+    cd /ffmpeg && \
+    ./configure --prefix=/usr/local \
+                --enable-gpl \
+                --enable-nonfree \
+                --enable-libx264 \
+                --enable-libx265 \
+                --enable-libvpx \
+                --enable-libvorbis \
+                --enable-libopus \
+                --enable-libfdk-aac \
+                --enable-libsrt \
+                --enable-libtheora \
+                --enable-libass \
+                --enable-libvidstab \
+                --enable-libmp3lame \
+                --enable-libwebp \
+                --enable-libfreetype \
+                --enable-libfribidi \
+                --enable-libvmaf \
+                --enable-openssl \
+                --enable-libmysofa \
+                --enable-shared \
+                --disable-static \
+                --enable-postproc \
+                --enable-libfontconfig \
+                --enable-sdl2 \
+                --enable-lzma \
+                --enable-bzlib \
+                --enable-zlib && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig
+
+# Устанавливаем зависимости Python
+COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем все остальные файлы проекта
+# Копируем код проекта
 COPY . /app/
 
-# Запускаем подписчика
-CMD ["python3", "video_handle/video_handler_subscriber.py"]
+# Устанавливаем переменную PYTHONPATH
+ENV PYTHONPATH=/app
+
+# Открываем порты для Redis, Postgres и MinIO
+EXPOSE 5432 6379 9000 8000 45127
+
+# Запускаем приложение
+CMD ["python", "-m", "video_handle.video_handler_subscriber"]

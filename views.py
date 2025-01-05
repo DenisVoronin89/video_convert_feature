@@ -13,13 +13,13 @@ logger = get_logger()
 
 async def create_directories(directories_to_create: dict) -> dict:
     """
-    Универсальная функция для создания необходимых директорий.
+    Функция для создания необходимых директорий (запускается в стартапе)
 
     Args:
         directories_to_create (dict): Словарь с ключами и путями директорий для создания.
 
     Returns:
-        dict: Словарь с путями и статусами (создана/уже существует).
+        dict: Словарь с путями и статусами (создана/уже существует). Его распарсить потом надо и рассовать пути в нужные функции
     """
     created_directories = {}
     try:
@@ -47,10 +47,9 @@ async def create_directories(directories_to_create: dict) -> dict:
 async def save_image_to_temp(file: UploadFile, created_dirs: dict):
     """Сохранение изображения в папку image_temp"""
     try:
-        # Получаем путь к директории для изображения
+        # Путь к директории для изображения
         image_temp_path = created_dirs.get("image_temp", {}).get("path", "")
 
-        # Если путь не найден, выбрасываем ошибку
         if not image_temp_path:
             logger.error("Ошибка: директория 'image_temp' не найдена в конфигурации.")
             raise HTTPException(status_code=500, detail="Директория 'image_temp' не найдена в конфигурации.")
@@ -66,7 +65,7 @@ async def save_image_to_temp(file: UploadFile, created_dirs: dict):
             await out_file.write(await file.read())
 
         # Получение размера файла
-        file_size = os.path.getsize(temp_image_path) / (1024 * 1024)  # Преобразуем в МБ
+        file_size = os.path.getsize(temp_image_path) / (1024 * 1024)
         logger.info(f"Изображение сохранено во временной директории: {temp_image_path} (Размер: {file_size:.2f} MB)")
 
         return temp_image_path
@@ -81,7 +80,6 @@ async def save_video_to_temp(file: UploadFile, created_dirs: dict):
     try:
         temp_video_path = created_dirs.get("video_temp", {}).get("path", "")
 
-        # Если путь не найден, выбрасываем ошибку
         if not temp_video_path:
             logger.error("Ошибка: директория 'video_temp' не найдена в конфигурации.")
             raise HTTPException(status_code=500, detail="Директория 'video_temp' не найдена в конфигурации.")
@@ -97,7 +95,7 @@ async def save_video_to_temp(file: UploadFile, created_dirs: dict):
             await out_file.write(await file.read())
 
         # Получение размера файла
-        file_size = os.path.getsize(temp_video_path) / (1024 * 1024)  # Преобразуем в МБ
+        file_size = os.path.getsize(temp_video_path) / (1024 * 1024)
         logger.info(f"видео сохранено во временной директории: {temp_video_path} (Размер: {file_size:.2f} MB)")
 
         return temp_video_path
@@ -111,29 +109,26 @@ async def move_image_to_user_logo(image_path: str, created_dirs: dict) -> str:
     Перемещение изображения из временной директории в директорию user_logo и возврат пути к файлу.
 
     :param image_path: Путь к изображению.
-    :param created_dirs: Словарь с созданными директориями.
+    :param created_dirs: Словарь с созданными директориями. (Вытащить оттуда нужный путь)
     :return: Путь к файлу в директории user_logo.
     """
     try:
-        # Получаем путь к директории для user_logo
         user_logo_dir = created_dirs.get("user_logo", {}).get("path", "")
 
-        # Если путь пустой, выбрасываем ошибку
         if not user_logo_dir:
             logger.error("Ошибка: директория 'user_logo' не найдена в конфигурации.")
             raise HTTPException(status_code=500, detail="Директория 'user_logo' не найдена в конфигурации.")
 
         # Генерация уникального имени файла
-        user_logo_filename = f'{uuid4()}_{os.path.basename(image_path)}'  # Используем uuid4() вместо uuid.uuid4()
+        user_logo_filename = f'{uuid4()}_{os.path.basename(image_path)}'
         user_logo_path = os.path.join(user_logo_dir, user_logo_filename)
 
-        # Перемещаем файл в постоянную директорию
+        # Перемещение в постоянную директорию перед сохранением в БД
         shutil.move(image_path, user_logo_path)
 
-        file_size = os.path.getsize(user_logo_path) / (1024 * 1024)  # Размер в MB
+        file_size = os.path.getsize(user_logo_path) / (1024 * 1024)
         logger.info(f"Изображение перемещено в директорию user_logo: {user_logo_path} (Размер: {file_size:.2f} MB)")
 
-        # Логируем возврат пути к файлу
         logger.info(f"Путь к файлу для сохранения в БД: {user_logo_path}")
 
         # Возврат пути к файлу, а не URL
@@ -147,13 +142,10 @@ async def move_image_to_user_logo(image_path: str, created_dirs: dict) -> str:
         raise HTTPException(status_code=500, detail="Не удалось переместить изображение в директорию user_logo")
 
 
-# Работа с хэштегами (в круды потом перенести когда начну делать страницу основную с показами видео)
+# Работа с хэштегами
 async def get_videos_by_hashtag(tag):
     """
-    Получает все видео, связанные с указанным хэштегом.
-
-    :param tag: str, хэштег, по которому ищем связанные видео.
-    :return: list, список видео, связанных с данным хэштегом. Пустой список, если хэштег не найден.
+    Получение всех видео, связанных с указанным хэштегом.
     """
     session = await get_session(engine)
     async with session.begin():

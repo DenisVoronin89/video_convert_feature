@@ -3,8 +3,9 @@ from pydantic import HttpUrl
 from fastapi import FastAPI, UploadFile, HTTPException, File
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from aiobotocore.session import get_session
+from fastapi.middleware.cors import CORSMiddleware
 import redis.asyncio as redis
+import hashlib
 
 
 from database import init_db, engine
@@ -12,22 +13,10 @@ from logging_config import get_logger
 from video_handle.video_handler_publisher import publish_task
 from views import save_video_to_temp, save_image_to_temp, create_directories, move_image_to_user_logo
 from schemas import FormData, validate_and_process_form, is_valid_image, is_valid_video, serialize_form_data
-from authentification import get_random_wallet
 from check_payment import check_payment
 
-# Получаем логгер
+
 logger = get_logger()
-
-# Конфиги для разработки и тестирования (НЕ ДЛЯ ПРОДАКШЕНА)
-S3_BUCKET_NAME = "video-service"
-AWS_REGION = "us-east-1"
-AWS_ACCESS_KEY_ID = "SuOpyKZ54797K7y9vvaJ"
-AWS_SECRET_ACCESS_KEY = "6NBChpstlgkjvRTawqKRuNvGBVNRG8EWIPCu4Izl"
-
-PREVIEW_DURATION = 5 # Длина превью
-
-# Сессия для работы с AWS S3
-s3_session = get_session()
 
 # Словарь необходимых директорий для работы (прилетает в функцию create_directories)
 directories_to_create = {
@@ -40,8 +29,17 @@ directories_to_create = {
 
 app = FastAPI()
 
+# Настройка CORS (Это Максу - разрешить доступ фронту, разрешить отправлять мне запросы)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Разрешенные источники
+    allow_credentials=True,
+    allow_methods=["*"],  # Разрешенные методы
+    allow_headers=["*"],  # Разрешенные заголовки
+)
+
 # Раздача файлов из папки user_logo (ПОТОМ С СЕРВАКА КОГДА ОТДАВАТЬ БУДЕМ СДЕЛАТЬ ПРАВИЛЬНЫЙ КОНФИГ!!!!!!)
-#  в функции def move_image_to_user_logo (вьюхи) тоже поставить правильный конфиг в переменной!!!!!!
+# TODO в функции def move_image_to_user_logo (вьюхи) тоже поставить правильный конфиг в переменной!!!!!!
 app.mount("/user_logo", StaticFiles(directory="user_logo"), name="user_logo")
 
 
@@ -49,33 +47,35 @@ app.mount("/user_logo", StaticFiles(directory="user_logo"), name="user_logo")
 async def startup():
     """Функция запуска приложения"""
     try:
+        # Логирование начала процесса
+        logger.info("Запуск приложения и инициализация базы данных...")
+
         # Инициализация БД
         await init_db()
         logger.info("Приложение успешно запущено. Соединение с базой данных установлено.")
-        logger.info("Таблицы созданы успешно.")
 
         # Создание директорий
         created_dirs = await create_directories(directories_to_create)
 
-        # Сохраняем директории в состояние приложения
+        # Сохранение директорий в состояние приложения
         app.state.created_dirs = created_dirs
 
         # Логирование итогов
         dirs_created = {dir: path for dir, path in created_dirs.items() if path == "успешно создана"}
         if dirs_created:
             logger.info(f"Директории для использования успешно созданы: {dirs_created}")
-    except Exception as e:
-        logger.error(f"Ошибка при запуске приложения: {e}")
+
+    except RuntimeError as e:
+        logger.error(f"Ошибка при старте приложения: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при старте приложения: {str(e)}")
+
+    except SQLAlchemyError as e:
+        logger.error(f"Ошибка при инициализации базы данных: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при инициализации базы данных: {str(e)}")
 
     except Exception as e:
-        # Разделяем логи для ошибок
-        if 'init_db' in str(e):
-            logger.error(f"Ошибка при инициализации БД: {str(e)}")
-        elif 'create_directories' in str(e):
-            logger.error(f"Ошибка при создании директорий: {str(e)}")
-        else:
-            logger.error(f"Неизвестная ошибка: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Ошибка при запуске приложения: {str(e)}")
+        logger.error(f"Неизвестная ошибка: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Неизвестная ошибка: {str(e)}")
 
 
 @app.on_event("shutdown")
@@ -84,13 +84,6 @@ async def shutdown():
     await engine.dispose()
     logger.info("Приложение завершило работу. Соединение с базой данных закрыто.")
 
-# Доступ к путям через ключи (пока тут чтобы вытаскивать их, потом удалю)
-# video_temp_path = created_dirs["video_temp"]
-# image_temp_path = created_dirs["image_temp"]
-# output_video_path = created_dirs["output_video"]
-# output_preview_path = created_dirs["output_preview"]
-# user_logo_path = created_dirs["user_logo"]
-
 
 # Эндпоинт для загрузки изображения
 @app.post("/upload_image/")
@@ -98,7 +91,7 @@ async def upload_image(file: UploadFile = File(...)):
     try:
         logger.info("Получен запрос на загрузку изображения.")
 
-        # Получаем директории из состояния приложения
+        # Получение директорий из состояния приложения
         created_dirs = app.state.created_dirs
 
         # Проверка валидности изображения
@@ -126,7 +119,7 @@ async def upload_video(file: UploadFile = File(...)):
     try:
         logger.info("Получен запрос на загрузку видео.")
 
-        # Получаем директории из состояния приложения
+        # Получение директории из состояния приложения
         created_dirs = app.state.created_dirs
 
         # Проверка валидности видео
@@ -134,7 +127,7 @@ async def upload_video(file: UploadFile = File(...)):
             logger.warning(f"Неверный формат видео: {file.filename}")
             raise HTTPException(status_code=400, detail="Неверный формат видео")
 
-        # Сохранение видео с использованием уже описанной функции
+        # Сохранение видео
         video_path = await save_video_to_temp(file, created_dirs)
 
         logger.info(f"Видео успешно загружено: {video_path}")
@@ -148,21 +141,19 @@ async def upload_video(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="Ошибка при загрузке видео")
 
 
-# Эндпоинт валидации формы TODO форму кэшировать надо пока проверка платежа проходит (фронт озадачить! ЭТО ВАЖНО!!!!!))))
+# Эндпоинт валидации формы TODO форму кэшировать надо пока проверка платежа проходит (Макса озадачить! ЭТО ВАЖНО!!!!!))))
 @app.post("/check_form/")
 async def check_form(data: FormData):
     logger.debug(f"Получены данные: {data}")
     try:
-        # Логируем начало обработки данных формы
         logger.info("Получены данные формы: %s", data.dict())
 
         # Валидация и обработка данных формы
         form_result = await validate_and_process_form(data)
 
-        # Логируем успешную обработку данных
         logger.info("Данные формы успешно обработаны: %s", form_result)
 
-        # Возвращаем результат успешной обработки
+        # Результат успешной обработки (Максу на фронт)
         return JSONResponse(
             status_code=200,
             content={
@@ -172,12 +163,11 @@ async def check_form(data: FormData):
         )
 
     except HTTPException as e:
-        # Логируем ошибку уровня HTTP
+        # Лог ошибки уровня HTTP
         logger.error(f"Ошибка HTTP при обработке формы: {e.detail}")
         raise e
 
     except Exception as e:
-        # Логируем любую неожиданную ошибку
         logger.error(f"Неожиданная ошибка при обработке данных формы: {str(e)}")
         raise HTTPException(
             status_code=500,
@@ -198,25 +188,37 @@ async def process_payment_check():
         raise HTTPException(status_code=500, detail="Ошибка при проверке платежа")
 
 
-
+# Эндпоинт сохранения профиля
 @app.post("/save_profile/")
 async def save_profile(profile_data: FormData, image_data: dict, video_data: dict):
     """
-    Получаем данные профиля, пути к изображению и видео (в виде JSON), проверяем пути
-    и отправляем задачу на обработку в Redis.
+    Получение данных профиля из формы, пути к изображению и видео (в виде JSON),
+    проверка путей и отправка задачи на обработку в Redis.
     """
-    # Преобразуем данные формы в словарь
+    # Преобразование данных формы в словарь
     form_data_dict = profile_data.dict()
 
-    # Сериализуем данные формы (преобразуем HttpUrl в строку)
+    # Сериализация данных формы (HttpUrl в строку)
     form_data_dict = await serialize_form_data(form_data_dict)
 
-    # Логируем полученные данные
+    # Лог полученных данных(смотреть что полетит в канал)
     logger.info(f"Получены данные профиля: {form_data_dict}")
     logger.info(f"Получены данные о изображении: {image_data}")
     logger.info(f"Получены данные о видео: {video_data}")
 
-    # Извлекаем пути к файлам из JSON
+    # Извлечение номера кошелька и хэширование (кошелек с фронта летит)
+    try:
+        wallet_number = form_data_dict.get("wallet_number")
+        if not wallet_number:
+            raise ValueError("Номер кошелька не указан.")
+
+        hashed_wallet_number = hashlib.sha256(wallet_number.encode()).hexdigest()
+        logger.info(f"Номер кошелька захэширован: {hashed_wallet_number}")
+    except Exception as e:
+        logger.error(f"Ошибка при хэшировании номера кошелька: {str(e)}")
+        raise HTTPException(status_code=400, detail="Ошибка при обработке номера кошелька.")
+
+    # Извлечение путей к файлам из JSON
     try:
         image_path = image_data.get("image_path")
         video_path = video_data.get("video_path")
@@ -231,13 +233,13 @@ async def save_profile(profile_data: FormData, image_data: dict, video_data: dic
         logger.error(f"Ошибка при извлечении путей из JSON: {str(e)}")
         raise HTTPException(status_code=400, detail="Ошибка при извлечении путей из JSON.")
 
-    # Получаем директории из состояния приложения
+    # Получение директорий из состояния приложения
     created_dirs = app.state.created_dirs
     if not created_dirs:
         logger.error("Каталоги для сохранения файлов не были инициализированы.")
         raise HTTPException(status_code=500, detail="Ошибка при инициализации каталогов.")
 
-    # Преобразуем пути в абсолютные, если они относительные
+    # Преобразование путей в абсолютные, если они относительные
     absolute_image_path = os.path.abspath(image_path)
     absolute_video_path = os.path.abspath(video_path)
 
@@ -254,47 +256,44 @@ async def save_profile(profile_data: FormData, image_data: dict, video_data: dic
         logger.error(f"Путь к видео не ведет к файлу: {absolute_video_path}")
         raise HTTPException(status_code=400, detail="Указанный путь к видео не ведет к файлу.")
 
-    # Получаем кошелек для пользователя
-    wallet_number = await get_random_wallet()
-
-    # Переносим изображение в постоянную папку "user_logo"
+    # Перенос изображения в постоянную папку "user_logo"
     try:
-        # Переносим изображение и получаем путь
+        # Перенос изображения и получение пути
         user_logo_path = await move_image_to_user_logo(absolute_image_path, created_dirs)
         logger.info(f"Изображение успешно перемещено в постоянную папку: {user_logo_path}")
     except Exception as e:
         logger.error(f"Ошибка при перемещении изображения: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при перемещении изображения: {str(e)}")
 
-    # Преобразуем user_logo_path в строку, если это объект HttpUrl (поизысканное решение)
+    # Преобразование user_logo_path в строку, так как это объект HttpUrl (TODO объединить бы с сериализацией формы)
     if isinstance(user_logo_path, HttpUrl):
         user_logo_path = str(user_logo_path)
 
     try:
-        # Логируем начало обработки запроса
+        # Лог начала обработки запроса
         logger.info("Обработка данных профиля...")
 
-        # Подключаемся к Redis
-        redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+        # Подключение к Redis
+        redis_client = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
         logger.info("Соединение с Redis установлено.")
 
-        # Логируем задачу перед отправкой в Redis
+        # Лог задачи перед отправкой в Redis
         logger.info(f"Публикуемые данные в Redis: {{"
                      f"input_path: {absolute_video_path}, "
                      f"output_path: {created_dirs['output_video']}, "
                      f"preview_path: {created_dirs['output_preview']}, "
                      f"user_logo_url: {user_logo_path}, "
-                     f"wallet_number: {wallet_number}, "
+                     f"wallet_number: {hashed_wallet_number}, "
                      f"form_data: {form_data_dict}}}")
 
-        # Публикуем задачу в Redis
+        # Публикация задачи в Redis
         await publish_task(
             redis_client,
             input_path=absolute_video_path,  # Путь к видео
             output_path=created_dirs["output_video"],  # Путь для итогового видео
             preview_path=created_dirs["output_preview"],  # Путь для превью
             user_logo_url=user_logo_path,  # Путь к изображению, которое переехало в постоянную папку на сервере
-            wallet_number=wallet_number,  # Кошелек
+            wallet_number=hashed_wallet_number,  # Кошелек
             form_data=form_data_dict  # Данные формы для сохранения в БД
         )
         logger.info("Задача успешно отправлена в Redis.")
@@ -303,11 +302,10 @@ async def save_profile(profile_data: FormData, image_data: dict, video_data: dic
         return {"message": "Ваш профиль успешно сохранен и отправлен на модерацию."}
 
     except redis.RedisError as e:
-        # Логируем ошибку при работе с Redis
+        # Лог ошибок при работе с Redis
         logger.error(f"Ошибка при подключении или публикации в Redis: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при сохранении профиля в Redis: {str(e)}")
 
     except Exception as e:
-        # Логируем общие ошибки
         logger.error(f"Ошибка при сохранении профиля: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при сохранении профиля: {str(e)}")

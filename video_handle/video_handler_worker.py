@@ -1,31 +1,49 @@
-""" Модуль реализации асинхронных функций для обработки видео """
+""" Модуль реализации асинхронных функций для обработки видео и сохранения профиля в БД """
 
 import time
 import ffmpeg
 import aiofiles
 import io
 from prettyconf import config
-import uuid
+import os
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
+from aiobotocore.session import get_session
+
 from models import UserProfiles, Hashtag, VideoHashtag
+from schemas import FormData
+from utils import get_file_size
+
+
 
 from logging_config import get_logger
 
 logger = get_logger()
 
-
+# Конфиги для разработки и тестирования облачного хранилища(НЕ ДЛЯ ПРОДАКШЕНА)
 CHANNEL = config("CHANNEL", default="video_tasks")
-REDIS_HOST = config("REDIS_HOST", default="redis")
+REDIS_HOST = "redis"
 PREVIEW_DURATION = 5  # Длительность превью
+S3_BUCKET_NAME = "video-service"
+AWS_REGION = "us-east-1"
+AWS_ACCESS_KEY_ID = "StdyLLebBVvhXA47msMm"
+AWS_SECRET_ACCESS_KEY = "xOGYPd6V8FH7XfzFur4PcPpwLdhynTMWTgz40FH8"
 
 
 async def convert_to_vp9(input_path, output_path, logger):
-    """Конвертация видео с сохранением качества и минимизацией увеличения размера"""
+    """Конвертация видео с сохранением качества и минимизацией увеличения размера, юзаем кодек гугла VP9"""
     start_time = time.time()
+
+    # Извлечение имени файла из пути
+    input_filename = os.path.basename(input_path)
+
+    # Проверка расширения выходного файла
+    if not output_path.endswith('.webm'):
+        output_path = os.path.join(os.path.dirname(output_path), f"{input_filename}_converted.webm")
+
     try:
         logger.info(f"Запуск конвертации видео в VP9: {input_path} -> {output_path}")
         (
@@ -42,82 +60,128 @@ async def convert_to_vp9(input_path, output_path, logger):
     except ffmpeg.Error as e:
         logger.error(f"Ошибка FFmpeg при конвертации: {e.stderr.decode()}")
         raise RuntimeError("Не удалось конвертировать видео в VP9")
+
     logger.info(f"Видео успешно обработано: {output_path} (Размер: {output_size:.2f} MB)")
 
-async def extract_preview(input_path, output_path, duration=PREVIEW_DURATION, logger=None):
+    # Лог пути к конвертированному файлу (для проверки перед сохранением в БД)
+    logger.info(f"Путь к конвертированному видео: {output_path}")
+
+    # Возврат пути к конвертированному файлу
+    return output_path
+
+
+async def extract_preview(input_path, preview_path, duration=PREVIEW_DURATION, logger=None):
     """Извлечение превью"""
     start_time = time.time()
+
+    # Извлечение имени файла из пути
+    input_filename = os.path.basename(input_path)
+
+    # Проверка расширения выходного файла
+    if not preview_path.endswith('.webm'):
+        preview_path = os.path.join(os.path.dirname(preview_path), f"{input_filename}_preview.webm")
+
     try:
-        logger.info(f"Извлечение превью из видео: {input_path} -> {output_path} (Длительность: {duration} сек.)")
+        logger.info(f"Извлечение превью из видео: {input_path} -> {preview_path} (Длительность: {duration} сек.)")
         (
             ffmpeg
             .input(input_path, ss=0, t=duration)
-            .output(output_path, vcodec='libvpx-vp9', acodec='libopus')
+            .output(preview_path, vcodec='libvpx-vp9', acodec='libopus')
             .overwrite_output()
             .run(capture_stdout=True, capture_stderr=True)
         )
         elapsed_time = time.time() - start_time
-        preview_size = get_file_size(output_path)
+        preview_size = get_file_size(preview_path)
         logger.info(
-            f"Извлечение превью завершено: {output_path} (Размер: {preview_size:.2f} MB, Время: {elapsed_time:.2f} сек.)")
+            f"Извлечение превью завершено: {preview_path} (Размер: {preview_size:.2f} MB, Время: {elapsed_time:.2f} сек.)")
     except ffmpeg.Error as e:
         logger.error(f"Ошибка FFmpeg при извлечении превью: {e.stderr.decode()}")
         raise RuntimeError("Не удалось извлечь превью")
-    logger.info(f"Превью успешно извлечено: {output_path} (Размер: {preview_size:.2f} MB)")
+
+    logger.info(f"Превью успешно извлечено: {preview_path} (Размер: {preview_size:.2f} MB)")
+
+    # Лог пути к извлеченному превью (для проверки перед сохранением в БД)
+    logger.info(f"Путь к извлеченному превью: {preview_path}")
+
+    # Возврат пути к превью (улетает в ф-ию загрузки в облако)
+    return preview_path
 
 
-async def upload_to_s3(video_path, preview_path, logger):
-    """
-    Загрузка видео и превью в S3.
-
-    :param video_path: Локальный путь к видео.
-    :param preview_path: Локальный путь к превью.
-    :param logger: Логгер для записи логов.
-    :return: Ссылки на загруженные файлы.
-    """
+# TODO в проде нужно не забыть сюда поставить нужные парметры такие как урлы и прочее!!!
+async def check_s3_connection(logger):
+    """ Проверка соединения с MinIO перед загрузкой. """
     try:
-        # Генерация ключей для видео и превью
-        video_key = f"videos/{uuid.uuid4()}_{video_path.split('/')[-1]}"
-        preview_key = f"previews/{uuid.uuid4()}_{preview_path.split('/')[-1]}"
-
         async with get_session().create_client(
                 "s3",
                 region_name=AWS_REGION,
                 aws_access_key_id=AWS_ACCESS_KEY_ID,
                 aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-                endpoint_url="http://localhost:9000",
+                endpoint_url="http://minio:9000",  # TODO minio из контейнера, в проде сменить!!!
+        ) as s3_client:
+            # Проверка подключения, попытка получить список объектов из бакета
+            await s3_client.list_objects_v2(Bucket=S3_BUCKET_NAME)
+            logger.info("Соединение с MinIO установлено успешно.")
+    except Exception as e:
+        logger.error(f"Не удалось установить соединение с MinIO: {e}")
+        raise RuntimeError(f"Не удалось подключиться к MinIO: {e}")
+
+
+async def upload_to_s3(converted_video, preview_video, logger):
+    """
+    Загрузка видео и превью в S3 с предварительной проверкой соединения.
+
+    :param converted_video: Локальный путь к конвертированному видео.
+    :param preview_video: Локальный путь к превью.
+    :param logger: Логгер для записи логов.
+    :return: Ссылки на загруженные файлы.
+    """
+    try:
+        # Проверка соединения с MinIO
+        await check_s3_connection(logger)
+
+        # Просто используются имена файлов без ключей, так как они получают уникальные имена и ключи для S3 это лишее (модуль вьюх)
+        video_filename = os.path.basename(converted_video)
+        preview_filename = os.path.basename(preview_video)
+
+        # Проверка наличия папки в бакете и создание ее при необходимости
+        async with get_session().create_client(
+                "s3",
+                region_name=AWS_REGION,
+                aws_access_key_id=AWS_ACCESS_KEY_ID,
+                aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+                endpoint_url="http://minio:9000",  # TODO minio из контейнера, в проде сменить!!!
         ) as s3_client:
             # Загрузка видео
-            logger.info(f"Загрузка видео в S3: {video_path} -> {video_key}")
-            async with aiofiles.open(video_path, "rb") as video_file:
+            logger.info(f"Загрузка видео в S3: {converted_video} -> {video_filename}")
+            async with aiofiles.open(converted_video, "rb") as video_file:
                 video_stream = io.BytesIO(await video_file.read())
             response_video = await s3_client.put_object(
                 Bucket=S3_BUCKET_NAME,
-                Key=video_key,
+                Key=video_filename,  # Имя файла как ключ (см. выше)
                 Body=video_stream,
             )
             if response_video["ResponseMetadata"]["HTTPStatusCode"] != 200:
                 raise RuntimeError(f"Ошибка при загрузке видео: некорректный код ответа")
 
-            logger.info(f"Видео успешно загружено в S3: {video_key}")
+            logger.info(f"Видео успешно загружено в S3: {video_filename}")
 
             # Загрузка превью
-            logger.info(f"Загрузка превью в S3: {preview_path} -> {preview_key}")
-            async with aiofiles.open(preview_path, "rb") as preview_file:
+            logger.info(f"Загрузка превью в S3: {preview_video} -> {preview_filename}")
+            async with aiofiles.open(preview_video, "rb") as preview_file:
                 preview_stream = io.BytesIO(await preview_file.read())
             response_preview = await s3_client.put_object(
                 Bucket=S3_BUCKET_NAME,
-                Key=preview_key,
+                Key=preview_filename,  # Имя файла как ключ (см. выше)
                 Body=preview_stream,
             )
             if response_preview["ResponseMetadata"]["HTTPStatusCode"] != 200:
                 raise RuntimeError(f"Ошибка при загрузке превью: некорректный код ответа")
 
-            logger.info(f"Превью успешно загружено в S3: {preview_key}")
+            logger.info(f"Превью успешно загружено в S3: {preview_filename}")
 
-        # Возвращаем ссылки на загруженные файлы
-        video_url = f"http://localhost:9000/{S3_BUCKET_NAME}/{video_key}"
-        preview_url = f"http://localhost:9000/{S3_BUCKET_NAME}/{preview_key}"
+        # Возврат ссылок на загруженные файлы
+        video_url = f"http://minio:9000/{S3_BUCKET_NAME}/{video_filename}"  # TODO ИЗМЕНИТЬ В ПРОДЕ НА КОРРЕКТНОЕ!!!!
+        preview_url = f"http://minio:9000/{S3_BUCKET_NAME}/{preview_filename}"  # TODO ИЗМЕНИТЬ В ПРОДЕ НА КОРРЕКТНОЕ!!!!
         logger.info(f"Загруженные файлы: Видео - {video_url}, Превью - {preview_url}")
 
         return video_url, preview_url
@@ -127,71 +191,78 @@ async def upload_to_s3(video_path, preview_path, logger):
         raise RuntimeError(f"Не удалось загрузить файлы в S3: {e}")
 
 
-async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_url: str, preview_url: str, user_logo_url: str, wallet_number, logger):
+async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_url: str, preview_url: str, user_logo_url: str, wallet_number: str,logger):
     """
     Сохранение или обновление данных пользователя, логотипа и хэштегов в БД.
 
     :param session: Сессия работы с БД.
-    :param form_data: Данные формы, валидируемые Pydantic.
+    :param form_data: Данные формы (валидация Pydantic см. модкль схем).
     :param video_url: URL загруженного видео.
     :param preview_url: URL превью видео.
     :param user_logo_url: URL логотипа пользователя.
     :param logger: Объект логгера.
-    :param wallet_number: номер кошелька юзера
+    :param wallet_number: номер кошелька юзера (прилетает уже хэшированный)
     """
     try:
-        # Проверяем, существует ли пользователь с данным кошельком
-        stmt = select(UserProfiles).where(UserProfiles.wallet_number == wallet_number)
-        result = await session.execute(stmt)
-        existing_user = result.scalars().first()
+        async with session.begin():
+            # Проверка наличия пользователя с данным кошельком
+            stmt = select(UserProfiles).where(UserProfiles.wallet_number == wallet_number)
+            result = await session.execute(stmt)
+            existing_user = result.scalars().first()
 
-        if existing_user:
-            # Если пользователь существует, обновляем его данные
-            existing_user.name = form_data.name
-            existing_user.activity_and_hobbies = form_data.activity_hobbies
-            existing_user.video_url = video_url
-            existing_user.preview_url = preview_url
-            existing_user.user_logo_url = user_logo_url
-            existing_user.is_moderated = False  # Сбрасываем флаг модерации при обновлении данных
-            logger.info(f"Обновлены данные для кошелька {wallet_number}")
-        else:
-            # Если пользователя не существует, создаем новую запись
-            new_user = UserProfiles(
-                name=form_data.name,
-                activity_and_hobbies=form_data.activity_hobbies,
-                wallet_number=wallet_number,  # Используем сгенерированный кошелек
-                video_url=video_url,
-                preview_url=preview_url,
-                user_logo_url=user_logo_url,
-                is_moderated=False
-            )
-            session.add(new_user)
-            logger.info(f"Создана новая запись для кошелька {wallet_number}")
+            if existing_user:
+                # Если пользователь существует, обновляем данные
+                existing_user.name = form_data["name"]
+                existing_user.activity_and_hobbies = form_data["activity_hobbies"]
+                existing_user.video_url = video_url
+                existing_user.preview_url = preview_url
+                existing_user.user_logo_url = user_logo_url
+                existing_user.adress = form_data["adress"]
+                existing_user.coordinates = form_data["coordinates"]
+                existing_user.is_incognito = False  # Если модерация не прошла, ставим True, и клиенту кнопка глушится
+                existing_user.is_moderated = False  # Сбрасываем флаг модерации при обновлении данных
+                logger.info(f"Обновлены данные для кошелька {wallet_number}")
+            else:
+                # Если пользователя не существует, создаем новую запись
+                new_user = UserProfiles(
+                    name=form_data["name"],
+                    activity_and_hobbies=form_data["activity_hobbies"],
+                    wallet_number=wallet_number,
+                    video_url=video_url,
+                    preview_url=preview_url,
+                    user_logo_url=user_logo_url,
+                    adress=form_data["adress"],
+                    coordinates=form_data["coordinates"],
+                    is_incognito=False,
+                    is_moderated=False
+                )
+                session.add(new_user)
+                logger.info(f"Создана новая запись для кошелька {wallet_number}")
 
-        # Работа с хэштегами
-        hashtags_list = [tag.strip().lower() for tag in form_data.hashtags.split('#') if tag.strip()]
-        if hashtags_list:
-            # Находим уже существующие хэштеги
-            existing_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
-            existing_hashtags_result = await session.execute(existing_hashtags_stmt)
-            existing_hashtags = {tag.tag: tag for tag in existing_hashtags_result.scalars().all()}
+            # Работа с хэштегами
+            hashtags_list = [tag.strip().lower() for tag in form_data["hashtags"].split('#') if tag.strip()]
+            if hashtags_list:
+                # Поиск и проверка существующих хэштегов
+                existing_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
+                existing_hashtags_result = await session.execute(existing_hashtags_stmt)
+                existing_hashtags = {tag.tag: tag for tag in existing_hashtags_result.scalars().all()}
 
-            for hashtag in hashtags_list:
-                if hashtag not in existing_hashtags:
-                    # Если хэштег отсутствует, добавляем его
-                    new_hashtag = Hashtag(tag=hashtag)
-                    session.add(new_hashtag)
-                    # Добавляем связь в таблицу VideoHashtag
-                    if existing_user:
-                        video_hashtag = VideoHashtag(video_url=video_url, hashtag_id=new_hashtag.id)  # Теперь связываем с video_url
-                        session.add(video_hashtag)
-                else:
-                    # Привязываем существующий хэштег к видео через таблицу VideoHashtag
-                    if existing_user:
-                        video_hashtag = VideoHashtag(video_url=video_url, hashtag_id=existing_hashtags[hashtag].id)  # Привязка через video_url
-                        session.add(video_hashtag)
+                for hashtag in hashtags_list:
+                    if hashtag not in existing_hashtags:
+                        # Если хэштег отсутствует - добавляем
+                        new_hashtag = Hashtag(tag=hashtag)
+                        session.add(new_hashtag)
+                        # Добавление связи в таблицу VideoHashtag
+                        if existing_user:
+                            video_hashtag = VideoHashtag(video_url=video_url, hashtag_id=new_hashtag.id)  # Связь с video_url
+                            session.add(video_hashtag)
+                    else:
+                        # Привязка существующего хэштега к видео через таблицу VideoHashtag
+                        if existing_user:
+                            video_hashtag = VideoHashtag(video_url=video_url, hashtag_id=existing_hashtags[hashtag].id)  # Привязка через video_url
+                            session.add(video_hashtag)
 
-        # Сохраняем изменения в БД
+        # Сохранение изменений в БД
         await session.commit()
         logger.info(f"Видео, пользователь, логотип и хэштеги успешно сохранены для кошелька {wallet_number}")
 
@@ -206,6 +277,3 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
         logger.exception(f"Непредвиденная ошибка: {e}")
         await session.rollback()
         raise HTTPException(status_code=500, detail="Ошибка сохранения данных в базе")
-
-
-

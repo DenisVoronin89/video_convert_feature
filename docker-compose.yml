@@ -1,85 +1,71 @@
 
 services:
-  # Контейнер для Redis
-  redis:
-    image: redis:latest
-    container_name: redis
-    ports:
-      - "6379:6379"
-    networks:
-      - mynetwork
-    volumes:
-      - redis_data:/data
-
-  # Контейнер для MinIO
-  minio:
-    image: minio/minio:latest
-    container_name: minio
-    environment:
-      MINIO_ACCESS_KEY: minioaccesskey
-      MINIO_SECRET_KEY: miniosecretkey
-    ports:
-      - "9000:9000"
-    command: server /data
-    networks:
-      - mynetwork
-    volumes:
-      - minio_data:/data
-
-  # Контейнер для PostgreSQL
   postgres:
-    image: postgres:latest
-    container_name: postgres
+    image: postgres:17
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin1224
-      POSTGRES_DB: sst_video_app
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: stt_video_app
     networks:
-      - mynetwork
+      - backend
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data  # volume для сохранности данных
 
-  # Контейнер для приложения (FastAPI)
-  app:
-    build:
-      context: .  # Используем корневую папку для сборки
-      dockerfile: Dockerfile.app  # Указываем путь к Dockerfile для приложения
-    container_name: fastapi_app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-    ports:
-      - "8000:8000"
-    depends_on:
-      - redis
-      - minio
-      - postgres
+  redis:
+    image: redis:latest
     networks:
-      - mynetwork
-    volumes:
-      - ./video_service.log:/video_service.log
+      - backend
 
-  # Контейнер для подписчика
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000" # Для обращения к API из подписчика
+      - "45127:45127" # Для WebUI
+    command: server /data --console-address ":45127"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    networks:
+      - backend
+
   video_handler_subscriber:
     build:
-      context: .  # Строим из корня проекта
-      dockerfile: Dockerfile.subscriber  # Указываем путь к Dockerfile для подписчика
-    container_name: video_handler_subscriber
-    command: python3 video_handle/video_handler_subscriber.py
-    depends_on:
-      - redis
-      - minio
-      - postgres
+      context: .
+      dockerfile: Dockerfile.subscriber
+    platform: linux/arm64
+    command: >
+      bash -c "export PYTHONPATH=$(pwd) && python -m video_handle.video_handler_subscriber"
     networks:
-      - mynetwork
+      - backend
+    volumes:
+      - ./video_service.log:/app/video_service.log  # Добавить лог-файл
+      - ./video_temp:/app/video_temp  # Общая папка для временных видео
+      - ./user_logo:/app/user_logo  # Общая папка для логотипов пользователей
+      - ./image_temp:/app/image_temp  # Общая папка для временных изображений
+      - ./output_preview:/app/output_preview  # Общая папка для выводов превью
+      - ./output_video:/app/output_video  # Общая папка для выводов видео
+    environment:
+      MINIO_ENDPOINT: minio:45127
+
+  fastapi_app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    ports:
+      - "8000:8000"
+    networks:
+      - backend
     volumes:
       - ./video_service.log:/app/video_service.log
+      - ./video_temp:/app/video_temp
+      - ./user_logo:/app/user_logo
+      - ./image_temp:/app/image_temp
+      - ./output_preview:/app/output_preview
+      - ./output_video:/app/output_video
 
 networks:
-  mynetwork:
+  backend:
     driver: bridge
 
 volumes:
-  redis_data:
-  minio_data:
   postgres_data:

@@ -3,7 +3,7 @@
 from pydantic import BaseModel, HttpUrl, Field
 import mimetypes
 from fastapi import UploadFile
-from typing import Dict
+from typing import Dict, List
 
 from banned_words import BANNED_WORDS
 
@@ -19,6 +19,9 @@ class FormData(BaseModel):
     activity_hobbies: str = Field(..., min_length=1, max_length=60, description="Поле активности и хобби")
     hashtags: str = Field(..., max_length=60, description="Хэштеги (неприменимый контент)")
     is_incognito: bool = Field(False, description="Флаг инкогнито пользователя")
+    wallet_number: str = Field(..., min_length=1, max_length=50, description="Номер кошелька пользователя")
+    adress: str = Field(..., min_length=1, max_length=255, description="Адрес пользователя")
+    coordinates: List[float] = Field(..., min_items=2, max_items=2, description="Координаты пользователя (широта, долгота)")
 
     class Config:
         json_schema_extra = {
@@ -27,38 +30,32 @@ class FormData(BaseModel):
                 "url": "https://example.com",
                 "activity_hobbies": "Gaming, Traveling",
                 "hashtags": "#gaming #traveling",
-                "is_incognito": False
+                "is_incognito": False,
+                "wallet_number": "0x123456789ABCDEF",
+                "adress": "123 Example Street, Example City",
+                "coordinates": [37.7749, -122.4194]
             }
         }
 
 
 
 def filter_badwords(hashtags: str) -> Dict[str, bool]:
-    """
-    Проверяет наличие запрещенных слов в строке хэштегов.
-
-    :param hashtags: Строка с хэштегами.
-    :return: Словарь с результатами проверки.
-    """
+    """ Проверка наличия запрещенных слов в строке хэштегов """
     logger.info("Проверка хэштегов на запрещённые слова.")
-    invalid_words = [word for word in BANNED_WORDS if word in hashtags.lower()]
+    cleaned_hashtags = " ".join(tag.lstrip("#") for tag in hashtags.split()) # Удаление решеток из хэштегов, с ними не работает
+
+    invalid_words = [word for word in BANNED_WORDS if word in cleaned_hashtags.lower()]
 
     if invalid_words:
         logger.warning(f"Найдены запрещённые слова в хэштегах: {', '.join(invalid_words)}")
         return {"has_invalid_words": True, "invalid_words": invalid_words}
 
     logger.info("Запрещённые слова не обнаружены в хэштегах.")
-
     return {"has_invalid_words": False}
 
 
 async def validate_and_process_form(data: FormData):
-    """
-    Объединяет валидацию и обработку данных формы.
-
-    :param data: Данные формы, валидируемые через FormData.
-    :return: Результат обработки формы в виде словаря.
-    """
+    """ Объединяет валидацию и обработку данных формы """
     try:
         logger.info("Начало валидации и обработки данных формы.")
 
@@ -72,9 +69,9 @@ async def validate_and_process_form(data: FormData):
                 detail=f"Неприемлемый контент в хэштегах: {invalid_words}"
             )
 
-        # Преобразуем HttpUrl в строку
+        # Преобразование HttpUrl в строку
         data_dict = data.dict()
-        data_dict['url'] = str(data_dict['url'])  # Преобразование HttpUrl в строку
+        data_dict['url'] = str(data_dict['url'])
 
         # Логика обработки данных
         result = {
@@ -97,16 +94,11 @@ async def validate_and_process_form(data: FormData):
 
 
 async def serialize_form_data(data: Dict[str, any]) -> Dict[str, any]:
-    """
-    Преобразует все значения в data, которые являются HttpUrl, в строки.
-
-    :param data: Словарь с данными, которые нужно сериализовать.
-    :return: Словарь с сериализованными значениями.
-    """
+    """ Преобразование всех значений в data(данные формы), которые являются HttpUrl, в строки """
     try:
         for key, value in data.items():
             if isinstance(value, HttpUrl):
-                data[key] = str(value)  # Преобразуем HttpUrl в строку
+                data[key] = str(value)
 
         return data
 
