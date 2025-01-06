@@ -1,22 +1,7 @@
 1. Создаем сеть бэкенд для докера
      docker network create backend
 
-2. Создаем БД:
-    Поднимаем контейнер с постгрес:
-        ❯docker-compose up -d postgres
-    Запускаем контейнер с постгрес:
-        ❯docker-compose up -d postgres
-    Заходим в консоль контейнера:
-        ❯ docker exec -it video_host-postgres-1 bash
-    Заходим в консоль постгрес из контейнера:
-        sudo -u postgres psql
-    Создаем юзера с учетными данными: admin:admin1224
-        CREATE USER admin WITH PASSWORD 'admin1224';
-        ALTER USER admin WITH SUPERUSER;
-    Создать БД
-        CREATE DATABASE stt_video_app;
-
-3. Настраиваем AWS S3 (minio)
+2. Настраиваем AWS S3 (minio)
     Поднимаем МиниО:
         ❯docker-compose up -d minio
     Заходим в браузере
@@ -28,10 +13,10 @@
         AWS_ACCESS_KEY_ID = "StdyLLebBVvhXA47msMm"
         AWS_SECRET_ACCESS_KEY = "xOGYPd6V8FH7XfzFur4PcPpwLdhynTMWTgz40FH8"
 
-4. Запускаем монолит приложения
+3. Запускаем монолит приложения
      docker-compose up --build
 
-5. Идем по ссылке http://127.0.0.1:8000/docs (НЕ ЗАБЫВАЕМ ПОДПИСКУ И ЛАЙК)))))))))
+4. Идем по ссылке http://127.0.0.1:8000/docs (НЕ ЗАБЫВАЕМ ПОДПИСКУ И ЛАЙК)))))))))
 
 
 
