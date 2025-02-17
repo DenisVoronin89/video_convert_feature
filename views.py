@@ -3,8 +3,13 @@ import shutil
 import aiofiles
 from uuid import uuid4
 from fastapi import UploadFile, HTTPException
+from typing import Optional
 from utils import get_file_size
 from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc
+from models import UserProfiles
+
 
 from logging_config import get_logger
 
@@ -142,20 +147,176 @@ async def move_image_to_user_logo(image_path: str, created_dirs: dict) -> str:
         raise HTTPException(status_code=500, detail="Не удалось переместить изображение в директорию user_logo")
 
 
-# Работа с хэштегами
-async def get_videos_by_hashtag(tag):
-    """
-    Получение всех видео, связанных с указанным хэштегом.
-    """
-    session = await get_session(engine)
-    async with session.begin():
-        # Поиск хэштега в БД по его тегу
-        hashtag = await session.execute(
-            select(Hashtag).filter(Hashtag.tag == tag)
-        ).scalar()
+# Получение всех профилей без фильтров с возможностью сортировки по новизне и популярности
+async def get_all_profiles(
+    page: int,
+    sort_by: Optional[str],
+    per_page: int,
+    db: AsyncSession
+):
+    """ Логика для получения всех профилей пользователей с пагинацией и сортировкой """
+    try:
+        # Базовый запрос: исключаем приватные профили
+        query = select(UserProfiles).filter(UserProfiles.is_incognito == False)
 
-        # Если хэштег найден, возвращает связанные с ним видео
-        if hashtag:
-            return hashtag.videos  # Список видео, связанных с этим хэштэгом
+        logger.info(f"Запрос всех профилей, страница: {page}, сортировка: {sort_by}, профилей на странице: {per_page}")
 
-        return []  # Если хэштег не найден, возвращает пустой список
+        # Применяем сортировку
+        if sort_by == "newest":
+            query = query.order_by(desc(UserProfiles.created_at))  # Сортировка по дате создания
+        elif sort_by == "popularity":
+            query = query.order_by(desc(UserProfiles.followers_count))  # Сортировка по количеству подписчиков
+
+        # Пагинация с учетом параметра per_page
+        offset = (page - 1) * per_page
+        query = query.offset(offset).limit(per_page)
+
+        # Добавление жадной загрузки хэштегов
+        query = query.options(selectinload(UserProfiles.hashtags))  # Жадная загрузка хэштегов
+
+        # Получаем результат
+        result = await db.execute(query)
+        profiles = result.scalars().all()
+
+        # Получаем общее количество профилей
+        total = await db.execute(select([func.count()]).select_from(UserProfiles))
+        total = total.scalar()
+
+        logger.info(f"Получено {len(profiles)} профилей для страницы {page}")
+        return {
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "profiles": profiles,
+        }
+
+    except SQLAlchemyError as e:
+        logger.error(f"Ошибка выполнения запроса к базе данных: {e}")
+        raise Exception("Ошибка базы данных, попробуйте позже.") from e
+
+    except Exception as e:
+        logger.error(f"Неизвестная ошибка: {e}")
+        raise Exception("Произошла ошибка, попробуйте позже.") from e
+
+
+# Получить список юзеров по городу (поисковой запрос - показать юзеров в городе) с возможностью сортировки по новизне и популярности
+async def get_profiles_by_city(
+    city: str, page: int, sort_by: str, per_page: int, db: AsyncSession
+):
+    """ Логика для получения профилей пользователей по городу """
+    try:
+        # Базовый запрос: исключаем приватные профили
+        query = select(UserProfiles).filter(
+            UserProfiles.city == city,
+            UserProfiles.is_incognito == False,  # Исключаем приватные профили
+        )
+
+        logger.info(f"Запрос профилей для города: {city}, страница: {page}, сортировка: {sort_by}, профилей на странице: {per_page}")
+
+        # Если это первая страница и сортировка не указана
+        if page == 1 and not sort_by:
+            query = query.offset(0).limit(per_page)  # Пагинация с ограничением на количество записей на странице
+            result = await db.execute(query)
+            profiles = result.scalars().all()
+            total = await db.execute(select([func.count()]).select_from(UserProfiles).filter(UserProfiles.city == city))
+            total = total.scalar()
+            logger.info(f"Получено {len(profiles)} профилей для первой страницы")
+            return {
+                "page": page,
+                "per_page": per_page,
+                "total": total,
+                "profiles": profiles,
+            }
+
+        # Если указана сортировка
+        if sort_by == "newest":
+            query = query.order_by(desc(UserProfiles.created_at))
+        elif sort_by == "popularity":
+            query = query.order_by(desc(UserProfiles.followers_count))
+
+        # Пагинация с учетом параметра per_page
+        offset = (page - 1) * per_page
+        query = query.offset(offset).limit(per_page)
+
+        # Добавление жадной загрузки хэштегов
+        query = query.options(selectinload(UserProfiles.hashtags))  # Жадная загрузка хэштегов
+
+        # Получаем результат
+        result = await db.execute(query)
+        profiles = result.scalars().all()
+
+        # Получаем общее количество профилей
+        total = await db.execute(select([func.count()]).select_from(UserProfiles).filter(UserProfiles.city == city))
+        total = total.scalar()
+
+        logger.info(f"Получено {len(profiles)} профилей для страницы {page}")
+        return {
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "profiles": profiles,
+        }
+
+    except SQLAlchemyError as e:
+        logger.error(f"Ошибка выполнения запроса к базе данных: {e}")
+        raise Exception("Ошибка базы данных, попробуйте позже.") from e
+
+    except Exception as e:
+        logger.error(f"Неизвестная ошибка: {e}")
+        raise Exception("Произошла ошибка, попробуйте позже.") from e
+
+
+# Получение пользователя по номеру кошелька
+async def get_profile_by_wallet_number(wallet_number: str, db: AsyncSession):
+    """
+    Логика получения профиля пользователя по номеру кошелька (асинхронно).
+
+    :param wallet_number: Номер кошелька для поиска.
+    :param db: Сессия базы данных.
+    :return: Словарь с информацией о профиле.
+    :raises HTTPException: Если профиль не найден или произошла ошибка.
+    """
+    try:
+        # Хэширование номера кошелька для поиска
+        hashed_wallet_number = hashlib.sha256(wallet_number.encode()).hexdigest()
+        logger.info(f"Ищем пользователя с хэшированным номером кошелька: {hashed_wallet_number}")
+
+        # Поиск пользователя по хэшированному номеру кошелька
+        result = await db.execute(
+            db.query(User).filter(User.wallet_number == hashed_wallet_number)
+        )
+        user = result.scalar_one_or_none()
+
+        if not user:
+            logger.error(f"Пользователь с номером кошелька {wallet_number} не найден.")
+            raise HTTPException(status_code=404, detail="Пользователь с таким номером кошелька не найден.")
+
+        if not user.is_profile_created or not user.profile:
+            logger.error(f"Профиль пользователя с номером кошелька {wallet_number} не найден.")
+            raise HTTPException(status_code=404, detail="Профиль пользователя не найден.")
+
+        # Формирование данных профиля для ответа
+        profile = user.profile
+        profile_data = {
+            "id": profile.id,
+            "name": profile.name,
+            "user_logo_url": profile.user_logo_url,
+            "video_url": profile.video_url,
+            "preview_url": profile.preview_url,
+            "activity_and_hobbies": profile.activity_and_hobbies,
+            "is_moderated": profile.is_moderated,
+            "is_incognito": profile.is_incognito,
+            "is_in_mlm": profile.is_in_mlm,
+            "adress": profile.adress,
+            "city": profile.city,
+            "coordinates": profile.coordinates,
+            "followers_count": profile.followers_count,
+            "created_at": profile.created_at,
+        }
+
+        logger.info(f"Профиль пользователя с номером кошелька {wallet_number} успешно найден.")
+        return profile_data
+
+    except Exception as e:
+        logger.error(f"Ошибка при получении профиля для кошелька {wallet_number}: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка сервера при получении профиля.")

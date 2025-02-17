@@ -12,8 +12,11 @@ from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 from aiobotocore.session import get_session
+from geoalchemy2 import Geometry
+from geoalchemy2.shape import to_shape
+from shapely.geometry import Point
 
-from models import UserProfiles, Hashtag, VideoHashtag
+from models import UserProfiles, Hashtag, VideoHashtag, User, Favorite
 from schemas import FormData
 from utils import get_file_size
 
@@ -205,39 +208,57 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
     """
     try:
         async with session.begin():
-            # Проверка наличия пользователя с данным кошельком
-            stmt = select(UserProfiles).where(UserProfiles.wallet_number == wallet_number)
+            # 1. Получаем пользователя по кошельку
+            stmt = select(User).where(User.wallet_number == wallet_number)
             result = await session.execute(stmt)
-            existing_user = result.scalars().first()
+            user = result.scalars().first()
 
-            if existing_user:
-                # Если пользователь существует, обновляем данные
-                existing_user.name = form_data["name"]
-                existing_user.activity_and_hobbies = form_data["activity_hobbies"]
-                existing_user.video_url = video_url
-                existing_user.preview_url = preview_url
-                existing_user.user_logo_url = user_logo_url
-                existing_user.adress = form_data["adress"]
-                existing_user.coordinates = form_data["coordinates"]
-                existing_user.is_incognito = False  # Если модерация не прошла, ставим True, и клиенту кнопка глушится
-                existing_user.is_moderated = False  # Сбрасываем флаг модерации при обновлении данных
-                logger.info(f"Обновлены данные для кошелька {wallet_number}")
-            else:
-                # Если пользователя не существует, создаем новую запись
-                new_user = UserProfiles(
+            if not user:
+                raise HTTPException(status_code=400, detail="Пользователь с данным кошельком не найден.")
+
+            # Преобразуем координаты в формат Point
+            coordinates = form_data["coordinates"]  # Это словарь {"lat": x, "lng": y}
+            point = Point(coordinates[0], coordinates[1])  # Shapely Point, долгота - lng, широта - lat
+
+            # 2. Проверка флага is_profile_created
+            if not user.is_profile_created:
+                # Если флаг False, создаем новый профиль
+                new_profile = UserProfiles(
                     name=form_data["name"],
                     activity_and_hobbies=form_data["activity_hobbies"],
-                    wallet_number=wallet_number,
                     video_url=video_url,
                     preview_url=preview_url,
                     user_logo_url=user_logo_url,
                     adress=form_data["adress"],
-                    coordinates=form_data["coordinates"],
+                    city=form_data["city"],
+                    coordinates=point,
                     is_incognito=False,
-                    is_moderated=False
+                    is_moderated=False,
+                    is_in_mlm=form_data["is_in_mlm"],
+                    user_id=user.id
                 )
-                session.add(new_user)
-                logger.info(f"Создана новая запись для кошелька {wallet_number}")
+
+                # Обновляем флаг is_profile_created в таблице User на True
+                user.is_profile_created = True
+            else:
+                # Если флаг True, просто обновляем профиль
+                stmt = select(UserProfiles).where(UserProfiles.user_id == user.id)
+                result = await session.execute(stmt)
+                profile = result.scalars().first()
+
+                # Обновляем данные профиля
+                profile.name = form_data["name"]
+                profile.activity_and_hobbies = form_data["activity_hobbies"]
+                profile.video_url = video_url
+                profile.preview_url = preview_url
+                profile.user_logo_url = user_logo_url
+                profile.adress = form_data["adress"]
+                profile.city = form_data["city"]
+                profile.coordinates = point
+                profile.is_incognito = False
+                profile.is_moderated = False
+                profile.is_in_mlm = form_data["is_in_mlm"]
+                logger.info(f"Обновлены данные профиля для кошелька {wallet_number}")
 
             # Работа с хэштегами
             hashtags_list = [tag.strip().lower() for tag in form_data["hashtags"].split('#') if tag.strip()]

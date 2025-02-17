@@ -39,7 +39,7 @@ async def init_db():
         raise
 
 
-@asynccontextmanager
+# @asynccontextmanager
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """Асинхронный контекстный менеджер для получения сессии работы с БД"""
     logger.info("Открытие сессии с БД...")

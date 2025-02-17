@@ -3,7 +3,8 @@
 from pydantic import BaseModel, HttpUrl, Field
 import mimetypes
 from fastapi import UploadFile
-from typing import Dict, List
+from typing import Dict, List, Optional
+from datetime import datetime
 
 from banned_words import BANNED_WORDS
 
@@ -19,9 +20,11 @@ class FormData(BaseModel):
     activity_hobbies: str = Field(..., min_length=1, max_length=60, description="Поле активности и хобби")
     hashtags: str = Field(..., max_length=60, description="Хэштеги (неприменимый контент)")
     is_incognito: bool = Field(False, description="Флаг инкогнито пользователя")
+    is_in_mlm: Optional[int] = Field(0, description="Флаг участия в МЛМ (если применимо)")
     wallet_number: str = Field(..., min_length=1, max_length=50, description="Номер кошелька пользователя")
     adress: str = Field(..., min_length=1, max_length=255, description="Адрес пользователя")
-    coordinates: List[float] = Field(..., min_items=2, max_items=2, description="Координаты пользователя (широта, долгота)")
+    city: str = Field(..., min_length=1, max_length=55, description="Город пользователя")
+    coordinates: List[float] = Field(..., min_items=2, max_items=2, description="Координаты пользователя (долгота, широта)") # Долгота идет первой!!!!!!!!
 
     class Config:
         json_schema_extra = {
@@ -31,12 +34,13 @@ class FormData(BaseModel):
                 "activity_hobbies": "Gaming, Traveling",
                 "hashtags": "#gaming #traveling",
                 "is_incognito": False,
+                "is_in_mlm": 1,
                 "wallet_number": "0x123456789ABCDEF",
                 "adress": "123 Example Street, Example City",
-                "coordinates": [37.7749, -122.4194]
+                "city": "Example City",
+                "coordinates": [37.7749, -122.4194]  # Долгота идет первой!!!!!!!!
             }
         }
-
 
 
 def filter_badwords(hashtags: str) -> Dict[str, bool]:
@@ -133,3 +137,28 @@ def is_valid_video(file: UploadFile) -> bool:
         ]
         return any(file.filename.endswith(ext) for ext in video_extensions)
     return False
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+
+
+class UserProfileResponse(BaseModel):
+    id: int
+    created_at: datetime
+    name: str
+    user_logo_url: str
+    video_url: str
+    preview_url: str
+    activity_and_hobbies: str
+    is_moderated: bool
+    is_incognito: bool
+    is_in_mlm: Optional[int]
+    adress: Optional[str]
+    city: str
+    followers_count: int
+    coordinates: Optional[str]
+
+    class Config:
+        from_attributes = True # Указывает Pydantic, что это модель SQLAlchemy
+

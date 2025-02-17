@@ -1,7 +1,9 @@
 
 services:
   postgres:
-    image: postgres:17
+    build:
+      context: .
+      dockerfile: Dockerfile.postgis
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin1224
@@ -9,7 +11,9 @@ services:
     networks:
       - backend
     volumes:
-      - postgres_data:/var/lib/postgresql/data  # volume для сохранности данных
+      - ./init_postgis.sql:/docker-entrypoint-initdb.d/init_postgis.sql
+      - postgres_data:/var/lib/postgresql/data
+
 
   redis:
     image: redis:latest
