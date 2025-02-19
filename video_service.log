@@ -1,0 +1,63 @@
+2025-02-19 14:37:04,715 - INFO - Запуск подписки на канал Redis для получения задач
+2025-02-19 14:37:04,720 - INFO - Redis доступен.
+2025-02-19 14:37:04,720 - INFO - Подключаемся к Redis...
+2025-02-19 14:37:04,720 - INFO - Подписались на канал video_tasks
+2025-02-19 14:37:47,274 - ERROR - Ошибка при получении сообщения: Connection closed by server.
+2025-02-19 14:37:47,295 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:37:47,298 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:37:47,300 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:37:47,301 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:37:47,302 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:37:47,303 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:37:47,304 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:38:28,418 - INFO - Запуск подписки на канал Redis для получения задач
+2025-02-19 14:38:28,422 - INFO - Redis доступен.
+2025-02-19 14:38:28,423 - INFO - Подключаемся к Redis...
+2025-02-19 14:38:28,423 - INFO - Подписались на канал video_tasks
+2025-02-19 14:38:28,581 - INFO - Запуск приложения и инициализация базы данных...
+2025-02-19 14:38:28,581 - DEBUG - Начало инициализации базы данных...
+2025-02-19 14:38:28,696 - INFO - База данных успешно инициализирована.
+2025-02-19 14:38:28,696 - INFO - Приложение успешно запущено. Соединение с базой данных установлено.
+2025-02-19 14:38:28,696 - INFO - Директория уже существует: ./video_temp
+2025-02-19 14:38:28,696 - INFO - Директория уже существует: ./image_temp
+2025-02-19 14:38:28,696 - INFO - Директория уже существует: ./output_video
+2025-02-19 14:38:28,696 - INFO - Директория уже существует: ./output_preview
+2025-02-19 14:38:28,696 - INFO - Директория уже существует: ./user_logo
+2025-02-19 14:39:58,049 - INFO - Открытие сессии с БД...
+2025-02-19 14:39:58,053 - INFO - Сессия с БД успешно открыта.
+2025-02-19 14:39:58,059 - INFO - Номер кошелька захэширован: 00592498ea57b21816d7f6e1da82c0914eb83fab68bd2439dfa9a3c1ab77fcea
+2025-02-19 14:39:58,134 - ERROR - Ошибка при генерации access токена: JsonWebToken.encode() got an unexpected keyword argument 'algorithm'
+2025-02-19 14:39:58,135 - ERROR - Ошибка при создании токенов для пользователя с ID 1: 500: Ошибка при генерации access токена
+2025-02-19 14:39:58,135 - ERROR - Ошибка при обработке запроса: 500: Ошибка при создании токенов
+2025-02-19 14:39:58,136 - ERROR - Ошибка в контексте сессии: 400: Ошибка при обработке запроса.
+2025-02-19 14:39:58,136 - INFO - Закрытие сессии с БД.
+2025-02-19 14:44:32,222 - ERROR - Ошибка при получении сообщения: Connection closed by server.
+2025-02-19 14:44:32,232 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,234 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,235 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,236 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,250 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,259 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,260 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,262 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,264 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,267 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,268 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,269 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,270 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,272 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,273 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,274 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,274 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,275 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,276 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,277 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,277 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,278 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,278 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,279 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,279 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,280 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,281 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,282 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).
+2025-02-19 14:44:32,282 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.18.0.2', 6379).

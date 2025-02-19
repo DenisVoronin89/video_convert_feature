@@ -143,7 +143,7 @@ async def check_user_token(token: str = Depends(oauth2_scheme)) -> TokenData:
 
 
 # Эндпоинт для регистрации/авторизации пользователя, отдача избранного и информации о профиле на фронт, генерация токенов
-@router.post("/user/login", response_model=UserProfileResponse)
+@app.post("/user/login", response_model=UserProfileResponse)
 async def login(wallet_number: str, session: AsyncSession = Depends(get_db_session)):
     """
     Эндпоинт для регистрации/авторизации пользователя.
@@ -414,10 +414,10 @@ async def save_profile(profile_data: FormData, image_data: dict, video_data: dic
 
 
 # Эндпоинт для сохранения юзера в БД без видео (нет смысла запускать фоновую задачу)
-@router.post("/save profile without video/")
+@app.post("/save profile without video/")
 async def create_or_update_user_profile(
-        profile_data: dict = Form(...),
-        image_data: dict = Form(...),
+        profile_data: FormData,
+        image_data: dict,
         _: TokenData = Depends(check_user_token),
         db: AsyncSession = Depends(get_db_session),
 ):
@@ -501,8 +501,7 @@ async def add_to_favorites_and_increment(
     user_id: int,
     profile_id: int,
     redis_client: redis.Redis = Depends(get_redis_client),
-    _: TokenData = Depends(check_user_token)
-):
+    _: TokenData = Depends(check_user_token)):
     """ Добавить профиль в избранное пользователя и увеличить счётчик подписчиков """
     try:
         # Добавляем профиль в избранное
@@ -820,6 +819,7 @@ def start_scheduler():
     # Старт планировщика
     scheduler.start()
     logger.info("Планировщик запущен и настроен.")
+
 
 # Запуск планировщика с асинхронным циклом
 if __name__ == "__main__":
