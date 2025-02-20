@@ -15,32 +15,46 @@ logger = get_logger()
 
 class FormData(BaseModel):
     """Описание схемы данных формы."""
-    name: str = Field(..., min_length=1, max_length=30, description="Имя пользователя")
-    url: HttpUrl = Field(..., description="URL сайта или социальной сети")
-    activity_hobbies: str = Field(..., min_length=1, max_length=60, description="Поле активности и хобби")
-    hashtags: str = Field(..., max_length=60, description="Хэштеги (неприменимый контент)")
+    name: str = Field(..., min_length=1, max_length=100, description="Имя пользователя")
+    user_logo_url: HttpUrl = Field(..., description="URL логотипа пользователя")
+    video_url: Optional[HttpUrl] = Field(None, description="URL видео пользователя")
+    preview_url: Optional[HttpUrl] = Field(None, description="URL превью видео")
+    activity_hobbies: Optional[str] = Field(None, min_length=1, max_length=500, description="Активность и хобби")
     is_incognito: bool = Field(False, description="Флаг инкогнито пользователя")
-    is_in_mlm: Optional[int] = Field(0, description="Флаг участия в МЛМ (если применимо)")
-    wallet_number: str = Field(..., min_length=1, max_length=50, description="Номер кошелька пользователя")
-    adress: str = Field(..., min_length=1, max_length=255, description="Адрес пользователя")
-    city: str = Field(..., min_length=1, max_length=55, description="Город пользователя")
-    coordinates: List[float] = Field(..., min_items=2, max_items=2, description="Координаты пользователя (долгота, широта)") # Долгота идет первой!!!!!!!!
+    is_in_mlm: Optional[int] = Field(0, description="Флаг участия в МЛМ (0 - нет, 1 - да)")
+    adress: Optional[List[str]] = Field(None, min_items=1, max_items=10, description="Список адресов (макс. 10)") # Массив до 10 адресов
+    city: Optional[str] = Field(None, min_length=1, max_length=55, description="Город пользователя")
+    # Массив до 10 пар координат
+    coordinates: Optional[List[List[float]]] = Field(
+        None,
+        min_items=1,
+        max_items=10,
+        description="Координаты пользователя (до 10 пар), каждая пара: [долгота, широта]"
+    )
+
 
     class Config:
         json_schema_extra = {
             "example": {
                 "name": "John Doe",
-                "url": "https://example.com",
+                "user_logo_url": "https://example.com/logo.jpg",
+                "video_url": "https://example.com/video.mp4",
+                "preview_url": "https://example.com/preview.jpg",
                 "activity_hobbies": "Gaming, Traveling",
-                "hashtags": "#gaming #traveling",
                 "is_incognito": False,
                 "is_in_mlm": 1,
-                "wallet_number": "0x123456789ABCDEF",
-                "adress": "123 Example Street, Example City",
+                "adress": [
+                    "123 Example Street, Example City",
+                    "456 Another Street, Another City"
+                ],
                 "city": "Example City",
-                "coordinates": [37.7749, -122.4194]  # Долгота идет первой!!!!!!!!
+                "coordinates": [
+                    [37.7749, -122.4194],  # Сан-Франциско
+                    [48.8566, 2.3522]  # Париж
+                ]
             }
         }
+
 
 
 def filter_badwords(hashtags: str) -> Dict[str, bool]:
@@ -138,6 +152,17 @@ def is_valid_video(file: UploadFile) -> bool:
         return any(file.filename.endswith(ext) for ext in video_extensions)
     return False
 
+
+# Модели данных для передачи информации
+class Token(BaseModel):
+    access_token: str
+    refresh_token: str
+
+
+class TokenData(BaseModel):
+    user_id: int
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
@@ -145,20 +170,32 @@ class TokenResponse(BaseModel):
 
 class UserProfileResponse(BaseModel):
     id: int
-    created_at: datetime
-    name: str
-    user_logo_url: str
-    video_url: str
-    preview_url: str
-    activity_and_hobbies: str
-    is_moderated: bool
-    is_incognito: bool
+    created_at: Optional[datetime]  # Опционально, так как профиль может не существовать
+    name: Optional[str]
+    user_logo_url: Optional[str]
+    video_url: Optional[str]
+    preview_url: Optional[str]
+    activity_and_hobbies: Optional[str]
+    is_moderated: Optional[bool]
+    is_incognito: Optional[bool]
     is_in_mlm: Optional[int]
-    adress: Optional[str]
-    city: str
-    followers_count: int
+    is_admin: Optional[bool]
+    adress: Optional[dict]  # JSONB может быть представлен как dict в Pydantic
+    city: Optional[str]
     coordinates: Optional[str]
+    followers_count: Optional[int]
 
     class Config:
-        from_attributes = True # Указывает Pydantic, что это модель SQLAlchemy
+        from_attributes = True  # Указывает Pydantic, что это модель SQLAlchemy
+
+
+class UserResponse(BaseModel):
+    id: int
+    profile: Optional[UserProfileResponse]
+    favorites: Optional[list[int]]
+    tokens: Token  # Добавляем поле для токенов
+
+    class Config:
+        from_attributes = True
+
 

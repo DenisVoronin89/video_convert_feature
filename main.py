@@ -1,8 +1,8 @@
 import os
 import asyncio
 from pydantic import HttpUrl
-from fastapi import FastAPI, UploadFile, HTTPException, File, Depends, Query
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import FastAPI, UploadFile, HTTPException, File, Depends, Query, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +17,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 
-from database import init_db, engine, get_db_session, SessionLocal
+from database import init_db, engine, get_db_session
 from logging_config import get_logger
 from video_handle.video_handler_publisher import publish_task
 from views import (
@@ -28,7 +28,7 @@ from views import (
     get_profiles_by_city,
     get_all_profiles,
 )
-from schemas import FormData, TokenResponse, UserProfileResponse, validate_and_process_form, is_valid_image, is_valid_video, serialize_form_data
+from schemas import FormData, TokenResponse, UserProfileResponse, UserResponse, is_valid_image, is_valid_video, serialize_form_data
 from models import User, UserProfiles, Favorite, Hashtag, VideoHashtag
 from cashe import (
     increment_subscribers_count,
@@ -59,7 +59,8 @@ directories_to_create = {
 
 app = FastAPI()
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+# Используем HTTPBearer, так как нам нужен только токен, а не полноценный OAuth2
+oauth2_scheme = HTTPBearer()
 
 # Настройка CORS (Это Максу - разрешить доступ фронту, разрешить отправлять мне запросы)
 app.add_middleware(
@@ -130,71 +131,89 @@ async def get_redis_client(redis_client: redis.Redis = Depends(lambda: app.state
 
 
 # Зависимость для проверки токена в заголовке
-async def check_user_token(token: str = Depends(oauth2_scheme)) -> TokenData:
+async def check_user_token(credentials: HTTPAuthorizationCredentials = Depends(oauth2_scheme)) -> TokenData:
     try:
+        # Извлечение токена из заголовка
+        token = credentials.credentials
+        if not token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token is missing")
+
         # Валидация access токена
         return await verify_access_token(token)
-    except HTTPException as e:
-        raise e
+    except IndexError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token format")
     except Exception as e:
         logger.error(f"Ошибка при валидации access токена: {str(e)}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired access token")
 
 
-
 # Эндпоинт для регистрации/авторизации пользователя, отдача избранного и информации о профиле на фронт, генерация токенов
-@app.post("/user/login", response_model=UserProfileResponse)
-async def login(wallet_number: str, session: AsyncSession = Depends(get_db_session)):
-    """
-    Эндпоинт для регистрации/авторизации пользователя.
-    Добавлена генерация токенов.
-    """
+@app.post("/user/login", response_model=UserResponse)
+async def login(wallet_number: str, session: AsyncSession = Depends(get_db_session), redis_client: redis.Redis = Depends(get_redis_client)):
     try:
         # Хэшируем номер кошелька
+        logger.info("Начало хеширования номера кошелька.")
         hashed_wallet_number = hashlib.sha256(wallet_number.encode()).hexdigest()
-        logger.info(f"Номер кошелька захэширован: {hashed_wallet_number}")
+        logger.info(f"Хеш номера кошелька: {hashed_wallet_number}")
 
-        # Ищем пользователя в базе данных
+        # Ищем пользователя в БД
+        logger.info("Поиск пользователя в базе данных.")
         stmt = select(User).filter(User.wallet_number == hashed_wallet_number)
         result = await session.execute(stmt)
         user = result.scalar_one_or_none()
 
         if not user:
-            # Если пользователь не найден, создаем нового
+            # 3. Если пользователя нет, создаем нового
+            logger.info("Пользователь не найден, создаем нового.")
             user = User(wallet_number=hashed_wallet_number)
             session.add(user)
             await session.commit()
             await session.refresh(user)
             logger.info(f"Создан новый пользователь с ID {user.id}")
+        else:
+            logger.info(f"Пользователь найден с ID {user.id}")
 
-        # Генерируем токены
-        tokens = await create_tokens(user.id)
-
-        # Ищем профиль пользователя (если он создан)
+        # Получаем профиль пользователя (если есть)
+        logger.info("Загрузка профиля пользователя из базы данных.")
         profile_stmt = select(UserProfiles).filter(UserProfiles.user_id == user.id)
         profile_result = await session.execute(profile_stmt)
         profile = profile_result.scalar_one_or_none()
-
         profile_info = UserProfileResponse.model_validate(profile) if profile else None
+        logger.info(f"Профиль пользователя: {profile_info}")
 
-        # Формируем список избранного пользователя
-        favorites_list = [
-            {"profile_id": favorite.profile_id, "created_at": favorite.created_at}
-            for favorite in user.favorites
-        ]
+        # Получаем избранное из кэша Redis
+        logger.info("Попытка получить избранное из кэша Redis.")
+        favorite_ids = await get_favorites_from_cache(user.id)
 
-        # Возвращаем информацию о пользователе, его профиле, избранном и токенах
-        return {
-            "user_id": user.id,
-            "profile": profile_info,
-            "favorites": favorites_list,
-            "access_token": tokens.access_token,
-            "refresh_token": tokens.refresh_token,
-        }
+        # Если в Redis пусто
+        if not favorite_ids:
+            logger.info("Избранное не найдено в кэше. Загружаем из базы данных.")
+            favorite_stmt = select(Favorite).filter(Favorite.user_id == user.id)
+            favorite_result = await session.execute(favorite_stmt)
+            favorites = favorite_result.scalars().all()
+            favorite_ids = [favorite.profile_id for favorite in favorites]
+            logger.info(f"Избранное загружено из БД: {favorite_ids}")
+        else:
+            logger.info(f"Избранное получено из кэша: {favorite_ids}")
+
+        # Генерация токенов
+        logger.info("Генерация токенов для пользователя.")
+        tokens = await create_tokens(user.id)
+        logger.info("Токены успешно сгенерированы.")
+
+        # Формируем и возвращаем ответ
+        logger.info(f"Возвращаем ответ для пользователя с ID {user.id}.")
+        return UserResponse(
+            id=user.id,
+            profile=profile_info,
+            favorites=favorite_ids,
+            tokens=tokens,
+        )
 
     except SQLAlchemyError as e:
         logger.error(f"Ошибка работы с БД: {str(e)}")
         raise HTTPException(status_code=500, detail="Ошибка работы с базой данных.")
+
     except Exception as e:
         logger.error(f"Ошибка при обработке запроса: {str(e)}")
         raise HTTPException(status_code=400, detail="Ошибка при обработке запроса.")

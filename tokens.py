@@ -4,24 +4,16 @@ from typing import Optional
 from pydantic import BaseModel
 from fastapi import HTTPException, status
 
+from schemas import Token, TokenData
 from logging_config import get_logger
 
 logger = get_logger()
+
 
 SECRET_KEY = "fasdklj133485u12nkasj9dkachasdn37TYUNVDWDHNcegn37"
 ALGORITHM = "HS256"  # Алгоритм подписи
 ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Время жизни access токена (в минутах)
 REFRESH_TOKEN_EXPIRE_DAYS = 1  # Время жизни refresh токена (в днях)
-
-
-# Модели данных для передачи информации
-class Token(BaseModel):
-    access_token: str
-    refresh_token: str
-
-
-class TokenData(BaseModel):
-    user_id: int
 
 
 # Генерация access токена (асинхронно)
@@ -33,12 +25,11 @@ async def create_access_token(data: dict, expires_delta: Optional[timedelta] = N
 
         # Генерация токена с использованием правильных параметров
         encoded_jwt_access = jwt.encode(
-            {"alg": ALGORITHM},
+            {"alg": ALGORITHM},  # Указываем алгоритм в заголовке
             to_encode,
-            algorithm=ALGORITHM,
-            key=SECRET_KEY
+            SECRET_KEY
         )
-        return encoded_jwt_access
+        return encoded_jwt_access.decode("utf-8")  # Декодируем байты в строку
     except Exception as e:
         logger.error(f"Ошибка при генерации access токена: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Ошибка при генерации access токена")
@@ -53,12 +44,11 @@ async def create_refresh_token(data: dict) -> str:
 
         # Генерация токена с использованием правильных параметров
         encoded_jwt_refresh = jwt.encode(
-            {"alg": ALGORITHM},
+            {"alg": ALGORITHM},  # Указываем алгоритм в заголовке
             to_encode,
-            algorithm=ALGORITHM,
-            key=SECRET_KEY
+            SECRET_KEY
         )
-        return encoded_jwt_refresh
+        return encoded_jwt_refresh.decode("utf-8")  # Декодируем байты в строку
     except Exception as e:
         logger.error(f"Ошибка при генерации refresh токена: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Ошибка при генерации refresh токена")
@@ -80,7 +70,7 @@ async def create_tokens(user_id: int) -> Token:
 async def verify_access_token(token: str) -> TokenData:
     try:
         # Используем authlib для декодирования токена
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, SECRET_KEY)
         return TokenData(**payload)
     except jwt.ExpiredSignatureError:
         logger.warning(f"Access token expired: {token}")
@@ -97,7 +87,7 @@ async def verify_access_token(token: str) -> TokenData:
 async def verify_refresh_token(token: str) -> TokenData:
     try:
         # Используем authlib для декодирования токена
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, SECRET_KEY)
         return TokenData(**payload)
     except jwt.ExpiredSignatureError:
         logger.warning(f"Refresh token expired: {token}")

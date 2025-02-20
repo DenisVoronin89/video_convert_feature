@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from aiobotocore.session import get_session
 from geoalchemy2 import Geometry
 from geoalchemy2.shape import to_shape
-from shapely.geometry import Point
+from shapely.geometry import Point, MultiPoint
 
 from models import UserProfiles, Hashtag, VideoHashtag, User, Favorite
 from schemas import FormData
@@ -216,9 +216,9 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
             if not user:
                 raise HTTPException(status_code=400, detail="Пользователь с данным кошельком не найден.")
 
-            # Преобразуем координаты в формат Point
-            coordinates = form_data["coordinates"]  # Это словарь {"lat": x, "lng": y}
-            point = Point(coordinates[0], coordinates[1])  # Shapely Point, долгота - lng, широта - lat
+            # Преобразуем каждую пару координат в объект Point, а затем создаём MultiPoint
+            points = [Point(coord["lng"], coord["lat"]) for coord in coordinates]
+            multi_point = MultiPoint(points)
 
             # 2. Проверка флага is_profile_created
             if not user.is_profile_created:
@@ -231,20 +231,24 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                     user_logo_url=user_logo_url,
                     adress=form_data["adress"],
                     city=form_data["city"],
-                    coordinates=point,
+                    coordinates=multi_point,
                     is_incognito=False,
                     is_moderated=False,
+                    is_admin=False,
                     is_in_mlm=form_data["is_in_mlm"],
                     user_id=user.id
                 )
 
                 # Обновляем флаг is_profile_created в таблице User на True
                 user.is_profile_created = True
-            else:
+                else:
                 # Если флаг True, просто обновляем профиль
                 stmt = select(UserProfiles).where(UserProfiles.user_id == user.id)
                 result = await session.execute(stmt)
                 profile = result.scalars().first()
+
+                # Сохраняем старое значение is_admin
+                current_is_admin = profile.is_admin
 
                 # Обновляем данные профиля
                 profile.name = form_data["name"]
@@ -254,10 +258,14 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                 profile.user_logo_url = user_logo_url
                 profile.adress = form_data["adress"]
                 profile.city = form_data["city"]
-                profile.coordinates = point
+                profile.coordinates = multi_point
                 profile.is_incognito = False
                 profile.is_moderated = False
                 profile.is_in_mlm = form_data["is_in_mlm"]
+
+                # Возвращаем старое значение is_admin
+                profile.is_admin = current_is_admin
+
                 logger.info(f"Обновлены данные профиля для кошелька {wallet_number}")
 
             # Работа с хэштегами

@@ -1,5 +1,6 @@
 """  Модуль для описания таблиц в БД, реализация связей между хэштегами и видео """
 
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import Column, Integer, String, ForeignKey, Index, Boolean, DateTime, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
@@ -43,9 +44,9 @@ class UserProfiles(Base):
     is_incognito = Column(Boolean, default=False, nullable=False)
     is_in_mlm = Column(Integer, nullable=True, default=0)
     is_admin = Column(Boolean, nullable=True, default=False)
-    adress = Column(String(255), nullable=True)
+    adress = Column(JSONB, nullable=True) # Массив до 10 адресов
     city = Column(String(55), nullable=True)
-    coordinates = Column(Geometry('POINT', srid=4326), nullable=True)
+    coordinates = Column(Geometry('MULTIPOINT', srid=4326), nullable=True) # Множественные координаты в формате MULTIPOINT
     followers_count = Column(Integer, default=0, nullable=True)  # Счётчик подписчиков летит из редиски
 
     # Связь с хэштегами
