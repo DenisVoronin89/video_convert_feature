@@ -32,8 +32,8 @@ REDIS_HOST = "redis"
 PREVIEW_DURATION = 5  # Длительность превью
 S3_BUCKET_NAME = "video-service"
 AWS_REGION = "us-east-1"
-AWS_ACCESS_KEY_ID = "StdyLLebBVvhXA47msMm"
-AWS_SECRET_ACCESS_KEY = "xOGYPd6V8FH7XfzFur4PcPpwLdhynTMWTgz40FH8"
+AWS_ACCESS_KEY_ID = "pkZKH9pAVimC5SqmBf1r"
+AWS_SECRET_ACCESS_KEY = "NO7zSwNyYrNXOiFcBAL2gRYbaZ3kgngdtD8qUEjd"
 
 
 async def convert_to_vp9(input_path, output_path, logger):
@@ -194,7 +194,7 @@ async def upload_to_s3(converted_video, preview_video, logger):
         raise RuntimeError(f"Не удалось загрузить файлы в S3: {e}")
 
 
-async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_url: str, preview_url: str, user_logo_url: str, wallet_number: str,logger):
+async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_url: str, preview_url: str, user_logo_url: str, wallet_number: str, logger):
     """
     Сохранение или обновление данных пользователя, логотипа и хэштегов в БД.
 
@@ -216,22 +216,29 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
             if not user:
                 raise HTTPException(status_code=400, detail="Пользователь с данным кошельком не найден.")
 
+            # Получаем координаты из form_data
+            coordinates = form_data["coordinates"]
+
             # Преобразуем каждую пару координат в объект Point, а затем создаём MultiPoint
-            points = [Point(coord["lng"], coord["lat"]) for coord in coordinates]
+            points = [Point(coord[1], coord[0]) for coord in coordinates]  # Долгота, Широта
             multi_point = MultiPoint(points)
+
+            # Преобразуем MultiPoint в строку WKT
+            multi_point_wkt = str(multi_point)
 
             # 2. Проверка флага is_profile_created
             if not user.is_profile_created:
                 # Если флаг False, создаем новый профиль
                 new_profile = UserProfiles(
                     name=form_data["name"],
+                    website_or_social=form_data["website_or_social"],
                     activity_and_hobbies=form_data["activity_hobbies"],
                     video_url=video_url,
                     preview_url=preview_url,
                     user_logo_url=user_logo_url,
                     adress=form_data["adress"],
                     city=form_data["city"],
-                    coordinates=multi_point,
+                    coordinates=multi_point_wkt,
                     is_incognito=False,
                     is_moderated=False,
                     is_admin=False,
@@ -241,7 +248,10 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
 
                 # Обновляем флаг is_profile_created в таблице User на True
                 user.is_profile_created = True
-                else:
+
+                # Добавляем профиль в сессию для новой записи
+                session.add(new_profile)
+            else:
                 # Если флаг True, просто обновляем профиль
                 stmt = select(UserProfiles).where(UserProfiles.user_id == user.id)
                 result = await session.execute(stmt)
@@ -252,13 +262,14 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
 
                 # Обновляем данные профиля
                 profile.name = form_data["name"]
+                profile.website_or_social = form_data["website_or_social"]
                 profile.activity_and_hobbies = form_data["activity_hobbies"]
                 profile.video_url = video_url
                 profile.preview_url = preview_url
                 profile.user_logo_url = user_logo_url
                 profile.adress = form_data["adress"]
                 profile.city = form_data["city"]
-                profile.coordinates = multi_point
+                profile.coordinates = multi_point_wkt
                 profile.is_incognito = False
                 profile.is_moderated = False
                 profile.is_in_mlm = form_data["is_in_mlm"]
@@ -266,10 +277,13 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                 # Возвращаем старое значение is_admin
                 profile.is_admin = current_is_admin
 
+                # Добавляем профиль в сессию для обновления
+                session.add(profile)
+
                 logger.info(f"Обновлены данные профиля для кошелька {wallet_number}")
 
             # Работа с хэштегами
-            hashtags_list = [tag.strip().lower() for tag in form_data["hashtags"].split('#') if tag.strip()]
+            hashtags_list = [tag.strip().lower() for tag in form_data["hashtags"] if tag.strip()]
             if hashtags_list:
                 # Поиск и проверка существующих хэштегов
                 existing_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
@@ -281,15 +295,15 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                         # Если хэштег отсутствует - добавляем
                         new_hashtag = Hashtag(tag=hashtag)
                         session.add(new_hashtag)
+                        await session.flush()  # Дожидаемся генерации ID
+
                         # Добавление связи в таблицу VideoHashtag
-                        if existing_user:
-                            video_hashtag = VideoHashtag(video_url=video_url, hashtag_id=new_hashtag.id)  # Связь с video_url
-                            session.add(video_hashtag)
+                        video_hashtag = VideoHashtag(video_url=video_url, hashtag_id=new_hashtag.id)  # Связь с video_url
+                        session.add(video_hashtag)
                     else:
                         # Привязка существующего хэштега к видео через таблицу VideoHashtag
-                        if existing_user:
-                            video_hashtag = VideoHashtag(video_url=video_url, hashtag_id=existing_hashtags[hashtag].id)  # Привязка через video_url
-                            session.add(video_hashtag)
+                        video_hashtag = VideoHashtag(video_url=video_url, hashtag_id=existing_hashtags[hashtag].id)  # Привязка через video_url
+                        session.add(video_hashtag)
 
         # Сохранение изменений в БД
         await session.commit()

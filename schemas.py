@@ -2,9 +2,11 @@
 
 from pydantic import BaseModel, HttpUrl, Field
 import mimetypes
-from fastapi import UploadFile
+from fastapi import UploadFile, HTTPException
 from typing import Dict, List, Optional
 from datetime import datetime
+
+from typing_extensions import Tuple
 
 from banned_words import BANNED_WORDS
 
@@ -13,55 +15,69 @@ from logging_config import get_logger
 logger = get_logger()
 
 
+# Описание схемы данных формы
 class FormData(BaseModel):
     """Описание схемы данных формы."""
+
     name: str = Field(..., min_length=1, max_length=100, description="Имя пользователя")
-    user_logo_url: HttpUrl = Field(..., description="URL логотипа пользователя")
-    video_url: Optional[HttpUrl] = Field(None, description="URL видео пользователя")
-    preview_url: Optional[HttpUrl] = Field(None, description="URL превью видео")
-    activity_hobbies: Optional[str] = Field(None, min_length=1, max_length=500, description="Активность и хобби")
+    website_or_social: Optional[str] = Field(None, max_length=255, description="Веб-сайт или соц. сеть пользователя")
+    activity_hobbies: Optional[str] = Field(None, max_length=500, description="Активность и хобби")
+    hashtags: Optional[List[str]] = Field(None, min_items=1, max_items=20, description="Список хэштегов, связанных с пользователем (до 20 шт.)")
+    adress: Optional[List[str]] = Field(None, min_items=1, max_items=10, description="Список адресов (макс. 10)")
+    city: Optional[str] = Field(None, max_length=55, description="Город пользователя")
+    coordinates: Optional[List[Tuple[float, float]]] = Field(None, min_items=1, max_items=10, description="Координаты пользователя (до 10 пар), каждая пара: [долгота, широта]")
+    is_in_mlm: Optional[int] = Field(0, description="Флаг участия в МЛМ")
     is_incognito: bool = Field(False, description="Флаг инкогнито пользователя")
-    is_in_mlm: Optional[int] = Field(0, description="Флаг участия в МЛМ (0 - нет, 1 - да)")
-    adress: Optional[List[str]] = Field(None, min_items=1, max_items=10, description="Список адресов (макс. 10)") # Массив до 10 адресов
-    city: Optional[str] = Field(None, min_length=1, max_length=55, description="Город пользователя")
-    # Массив до 10 пар координат
-    coordinates: Optional[List[List[float]]] = Field(
-        None,
-        min_items=1,
-        max_items=10,
-        description="Координаты пользователя (до 10 пар), каждая пара: [долгота, широта]"
-    )
+    wallet_number: str = Field(min_length=1, max_length=100, description="Номер кошелька пользователя")
 
 
     class Config:
         json_schema_extra = {
             "example": {
                 "name": "John Doe",
-                "user_logo_url": "https://example.com/logo.jpg",
-                "video_url": "https://example.com/video.mp4",
-                "preview_url": "https://example.com/preview.jpg",
+                "website_or_social": "https://twitter.com/johndoe",
                 "activity_hobbies": "Gaming, Traveling",
-                "is_incognito": False,
-                "is_in_mlm": 1,
+                "hashtags": ["#gaming", "#travel", "#photography"],
                 "adress": [
                     "123 Example Street, Example City",
                     "456 Another Street, Another City"
                 ],
                 "city": "Example City",
                 "coordinates": [
-                    [37.7749, -122.4194],  # Сан-Франциско
-                    [48.8566, 2.3522]  # Париж
-                ]
+                    (37.7749, -122.4194),
+                    (48.8566, 2.3522)
+                ],
+                "is_in_mlm": 1,
+                "is_incognito": False,
+                "wallet_number": "0x123abc456def"
             }
         }
 
 
+async def serialize_form_data(data: Dict[str, any]) -> Dict[str, any]:
+    """ Преобразование всех значений в data(данные формы), которые являются HttpUrl, в строки """
+    try:
+        for key, value in data.items():
+            if isinstance(value, HttpUrl):
+                data[key] = str(value)
 
-def filter_badwords(hashtags: str) -> Dict[str, bool]:
-    """ Проверка наличия запрещенных слов в строке хэштегов """
+        return data
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка сериализации данных: {str(e)}"
+        )
+
+
+async def filter_badwords(hashtags: List[str]) -> Dict[str, bool]:
+    """Проверка наличия запрещенных слов в списке хэштегов"""
     logger.info("Проверка хэштегов на запрещённые слова.")
-    cleaned_hashtags = " ".join(tag.lstrip("#") for tag in hashtags.split()) # Удаление решеток из хэштегов, с ними не работает
 
+    # Преобразуем список хэштегов в строку, удаляя решетку у каждого хэштега
+    cleaned_hashtags = " ".join(tag.lstrip("#") for tag in hashtags)
+
+    # Проверяем, если запрещенные слова присутствуют в строке с хэштегами
     invalid_words = [word for word in BANNED_WORDS if word in cleaned_hashtags.lower()]
 
     if invalid_words:
@@ -78,7 +94,7 @@ async def validate_and_process_form(data: FormData):
         logger.info("Начало валидации и обработки данных формы.")
 
         # Проверка хэштегов на запрещенные слова
-        hashtag_check = filter_badwords(data.hashtags)
+        hashtag_check = await filter_badwords(data.hashtags)
         if hashtag_check["has_invalid_words"]:
             invalid_words = ", ".join(hashtag_check["invalid_words"])
             logger.error(f"Хэштеги содержат запрещённые слова: {invalid_words}")
@@ -87,9 +103,10 @@ async def validate_and_process_form(data: FormData):
                 detail=f"Неприемлемый контент в хэштегах: {invalid_words}"
             )
 
-        # Преобразование HttpUrl в строку
+        # Преобразование HttpUrl в строку, если существует ключ 'website_or_social'
         data_dict = data.dict()
-        data_dict['url'] = str(data_dict['url'])
+        if 'website_or_social' in data_dict:
+            data_dict['website_or_social'] = str(data_dict['website_or_social'])
 
         # Логика обработки данных
         result = {
@@ -108,22 +125,6 @@ async def validate_and_process_form(data: FormData):
         raise HTTPException(
             status_code=500,
             detail=f"Ошибка обработки формы: {str(e)}"
-        )
-
-
-async def serialize_form_data(data: Dict[str, any]) -> Dict[str, any]:
-    """ Преобразование всех значений в data(данные формы), которые являются HttpUrl, в строки """
-    try:
-        for key, value in data.items():
-            if isinstance(value, HttpUrl):
-                data[key] = str(value)
-
-        return data
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Ошибка сериализации данных: {str(e)}"
         )
 
 
@@ -179,6 +180,7 @@ class UserProfileResponse(BaseModel):
     is_moderated: Optional[bool]
     is_incognito: Optional[bool]
     is_in_mlm: Optional[int]
+    website_or_social: Optional[str]
     is_admin: Optional[bool]
     adress: Optional[dict]  # JSONB может быть представлен как dict в Pydantic
     city: Optional[str]

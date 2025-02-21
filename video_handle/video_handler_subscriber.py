@@ -6,7 +6,7 @@
 import json
 import asyncio
 from sqlalchemy.exc import SQLAlchemyError
-from database import get_db_session
+from database import get_db_session_for_worker
 from redis.asyncio import Redis
 from video_handle.video_handler_worker import (
     convert_to_vp9,
@@ -24,8 +24,8 @@ CHANNEL = "video_tasks"  # Канал для видео задач
 REDIS_HOST = "redis"
 S3_BUCKET_NAME = "video-service"
 AWS_REGION = "us-east-1"
-AWS_ACCESS_KEY_ID = "StdyLLebBVvhXA47msMm"
-AWS_SECRET_ACCESS_KEY = "xOGYPd6V8FH7XfzFur4PcPpwLdhynTMWTgz40FH8"
+AWS_ACCESS_KEY_ID = "pkZKH9pAVimC5SqmBf1r"
+AWS_SECRET_ACCESS_KEY = "NO7zSwNyYrNXOiFcBAL2gRYbaZ3kgngdtD8qUEjd"
 
 
 async def handle_task(task_data):
@@ -75,7 +75,7 @@ async def handle_task(task_data):
         # 4. Сохранение профиля в БД
         logger.info(f"Начинаю сохранение профиля в БД для пользователя {task_data['form_data'].get('name', 'Неизвестно')}")
         try:
-            async with get_db_session() as session:
+            async with get_db_session_for_worker() as session:
                 # Передача сессии в ф-ию save_profile_to_db
                 await save_profile_to_db(
                     session=session,

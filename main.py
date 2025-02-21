@@ -11,6 +11,8 @@ from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 from geoalchemy2.functions import ST_DWithin, ST_MakePoint
+from geoalchemy2.shape import from_shape
+from shapely.geometry import Point, MultiPoint
 import hashlib
 from typing import Optional, List
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -28,7 +30,7 @@ from views import (
     get_profiles_by_city,
     get_all_profiles,
 )
-from schemas import FormData, TokenResponse, UserProfileResponse, UserResponse, is_valid_image, is_valid_video, serialize_form_data
+from schemas import FormData, TokenResponse, UserProfileResponse, UserResponse, is_valid_image, is_valid_video, serialize_form_data, validate_and_process_form
 from models import User, UserProfiles, Favorite, Hashtag, VideoHashtag
 from cashe import (
     increment_subscribers_count,
@@ -275,7 +277,7 @@ async def upload_video(file: UploadFile = File(...), current_user: TokenData = D
         raise HTTPException(status_code=500, detail="Ошибка при загрузке видео")
 
 
-# Эндпоинт валидации формы TODO форму кэшировать надо пока проверка платежа проходит (Макса озадачить! ЭТО ВАЖНО!!!!!))))
+# Эндпоинт валидации формы
 @app.post("/check_form/")
 async def check_form(data: FormData, current_user: TokenData = Depends(check_user_token)):
     logger.debug(f"Получены данные: {data}")
@@ -433,12 +435,12 @@ async def save_profile(profile_data: FormData, image_data: dict, video_data: dic
 
 
 # Эндпоинт для сохранения юзера в БД без видео (нет смысла запускать фоновую задачу)
-@app.post("/save profile without video/")
+@app.post("/save_profile_without_video/")
 async def create_or_update_user_profile(
         profile_data: FormData,
         image_data: dict,
         _: TokenData = Depends(check_user_token),
-        db: AsyncSession = Depends(get_db_session),
+        session: AsyncSession = Depends(get_db_session),
 ):
     try:
         # 1. Хэшируем номер кошелька
@@ -449,7 +451,11 @@ async def create_or_update_user_profile(
         hashed_wallet_number = hashlib.sha256(wallet_number.encode()).hexdigest()
         logger.info(f"Номер кошелька захэширован: {hashed_wallet_number}")
 
-        # 2. Проверяем наличие пути к изображению в image_data
+        # 2. Проверяем обязательное поле "имя"
+        if "name" not in profile_data or not profile_data["name"]:
+            raise HTTPException(status_code=400, detail="Имя пользователя обязательно.")
+
+        # 3. Проверяем изображение
         image_path = image_data.get("image_path")
         if not image_path:
             raise HTTPException(status_code=400, detail="Путь к изображению не указан.")
@@ -460,12 +466,12 @@ async def create_or_update_user_profile(
         if not os.path.isfile(absolute_image_path):
             raise HTTPException(status_code=400, detail="Изображение не найдено.")
 
-        # 3. Получаем каталоги из состояния приложения
+        # 4. Получаем каталоги из состояния приложения
         created_dirs = router.app.state.created_dirs
         if not created_dirs:
             raise HTTPException(status_code=500, detail="Ошибка инициализации каталогов.")
 
-        # 4. Перемещаем изображение в постоянную папку
+        # 5. Перемещаем изображение в постоянную папку
         try:
             user_logo_path = await move_image_to_user_logo(absolute_image_path, created_dirs)
             logger.info(f"Изображение перемещено в папку: {user_logo_path}")
@@ -473,43 +479,70 @@ async def create_or_update_user_profile(
             logger.error(f"Ошибка при перемещении изображения: {str(e)}")
             raise HTTPException(status_code=500, detail="Ошибка сохранения изображения.")
 
-        # 5. Проверяем существование профиля по хешу кошелька
-        stmt = select(UserProfiles).where(UserProfiles.hashed_wallet_number == hashed_wallet_number)
-        result = await db.execute(stmt)
-        existing_user = result.scalars().first()
+        # 6. Получаем пользователя по кошельку
+        stmt = select(User).where(User.wallet_number == wallet_number)
+        result = await session.execute(stmt)
+        user = result.scalars().first()
 
-        if existing_user:
-            logger.info(f"Обновление профиля для кошелька: {hashed_wallet_number}")
+        if not user:
+            raise HTTPException(status_code=404, detail="Пользователь с таким номером кошелька не найден.")
 
+        # 7. Проверка флага is_profile_created
+        if not user.is_profile_created:
+            # Проверяем координаты
+            coordinates = profile_data.get("coordinates")
+            multi_point_wkt = None
+            if coordinates:
+                points = [Point(coord[1], coord[0]) for coord in coordinates]  # Долгота, Широта
+                multi_point = MultiPoint(points)
+                multi_point_wkt = str(multi_point)
+
+            # Создаём новый профиль
+            new_profile = UserProfiles(
+                user_id=user.id,
+                hashed_wallet_number=hashed_wallet_number,
+                user_logo_url=str(user_logo_path),
+                coordinates_wkt=multi_point_wkt,  # Сохраняем координаты, если они есть
+                **{k: v for k, v in profile_data.items() if
+                   k in UserProfiles.__table__.columns and k != "wallet_number"}
+            )
+            session.add(new_profile)
+            user.is_profile_created = True  # Обновляем флаг у пользователя
+            logger.info(f"Создан новый профиль для пользователя {user.id}")
+        else:
+            # Обновляем существующий профиль
+            stmt = select(UserProfiles).where(UserProfiles.user_id == user.id)
+            result = await session.execute(stmt)
+            profile = result.scalars().first()
+
+            if not profile:
+                raise HTTPException(status_code=404, detail="Профиль пользователя не найден.")
+
+            # Сохраняем старое значение is_admin
+            current_is_admin = profile.is_admin
+
+            # Обновляем только переданные и непустые значения
             for key, value in profile_data.items():
-                if key in UserProfiles.__table__.columns and key != "wallet_number":
-                    setattr(existing_user, key, value)
+                if key in UserProfiles.__table__.columns and key != "wallet_number" and value is not None:
+                    setattr(profile, key, value)
 
-            existing_user.user_logo_url = str(user_logo_path)
+            # Проверяем, пришли ли координаты
+            coordinates = profile_data.get("coordinates")
+            if coordinates:
+                points = [Point(coord[1], coord[0]) for coord in coordinates]  # Долгота, Широта
+                multi_point = MultiPoint(points)
+                profile.coordinates_wkt = str(multi_point)
 
-            await db.commit()
-            await db.refresh(existing_user)
-            return {"status": "updated", "user_id": existing_user.id}
+            # Возвращаем старое значение is_admin
+            profile.is_admin = current_is_admin
 
-        logger.info(f"Создание нового профиля для кошелька: {hashed_wallet_number}")
+            logger.info(f"Профиль пользователя {user.id} обновлён.")
 
-        new_user = UserProfiles(
-            hashed_wallet_number=hashed_wallet_number,
-            user_logo_url=str(user_logo_path),
-            **{k: v for k, v in profile_data.items() if k in UserProfiles.__table__.columns and k != "wallet_number"}
-        )
+        await session.commit()
+        await session.refresh(user)
+        await session.refresh(profile)
 
-        db.add(new_user)
-        await db.commit()
-        await db.refresh(new_user)
-
-        return {"status": "created", "user_id": new_user.id}
-
-    except HTTPException as http_error:
-        raise http_error
-    except Exception as e:
-        logger.error(f"Ошибка обработки профиля: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ошибка сервера при обработке профиля")
+        return {"status": "updated" if user.is_profile_created else "created", "user_id": user.id}
 
 
 # ЭНДПОИНТЫ ДЛЯ РАБОТЫ С КЭШЕМ

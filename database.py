@@ -39,8 +39,24 @@ async def init_db():
         raise
 
 
-# @asynccontextmanager
+# Асинхронный контекстный менеджер для приложения TODO c Евгением разобраться по декоратору какого художника с декоратором ендпоинты менйа не работают
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
+    """Асинхронный контекстный менеджер для получения сессии работы с БД"""
+    logger.info("Открытие сессии с БД...")
+    async with SessionLocal() as session:
+        try:
+            logger.info("Сессия с БД успешно открыта.")
+            yield session
+        except Exception as e:
+            logger.error(f"Ошибка в контексте сессии: {e}")
+            raise
+        finally:
+            logger.info("Закрытие сессии с БД.")
+
+
+# Асинхронный контекстный менеджер для воркера TODO c Евгением разобраться по декоратору какого художника с декоратором ендпоинты менйа не работают
+@asynccontextmanager
+async def get_db_session_for_worker() -> AsyncGenerator[AsyncSession, None]:
     """Асинхронный контекстный менеджер для получения сессии работы с БД"""
     logger.info("Открытие сессии с БД...")
     async with SessionLocal() as session:

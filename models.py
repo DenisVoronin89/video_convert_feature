@@ -36,6 +36,7 @@ class UserProfiles(Base):
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     name = Column(String(100), unique=False, nullable=False)
+    website_or_social = Column(String(255), nullable=True)
     user_logo_url = Column(String(255), nullable=False, unique=True)
     video_url = Column(String(255), nullable=True, unique=True)
     preview_url = Column(String(255), nullable=True, unique=True)
