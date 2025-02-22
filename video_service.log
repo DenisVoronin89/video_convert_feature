@@ -1,150 +1,80 @@
-2025-02-21 13:55:23,410 - INFO - Запуск приложения и инициализация базы данных...
-2025-02-21 13:55:23,410 - DEBUG - Начало инициализации базы данных...
-2025-02-21 13:55:23,469 - INFO - Запуск подписки на канал Redis для получения задач
-2025-02-21 13:55:23,480 - INFO - Redis доступен.
-2025-02-21 13:55:23,480 - INFO - Подключаемся к Redis...
-2025-02-21 13:55:23,480 - INFO - Подписались на канал video_tasks
-2025-02-21 13:55:23,509 - INFO - База данных успешно инициализирована.
-2025-02-21 13:55:23,509 - INFO - Приложение успешно запущено. Соединение с базой данных установлено.
-2025-02-21 13:55:23,509 - INFO - Директория уже существует: ./video_temp
-2025-02-21 13:55:23,509 - INFO - Директория уже существует: ./image_temp
-2025-02-21 13:55:23,509 - INFO - Директория уже существует: ./output_video
-2025-02-21 13:55:23,510 - INFO - Директория уже существует: ./output_preview
-2025-02-21 13:55:23,510 - INFO - Директория уже существует: ./user_logo
-2025-02-21 13:55:44,962 - INFO - Открытие сессии с БД...
-2025-02-21 13:55:44,964 - INFO - Сессия с БД успешно открыта.
-2025-02-21 13:55:44,977 - INFO - Начало хеширования номера кошелька.
-2025-02-21 13:55:44,977 - INFO - Хеш номера кошелька: 00592498ea57b21816d7f6e1da82c0914eb83fab68bd2439dfa9a3c1ab77fcea
-2025-02-21 13:55:44,978 - INFO - Поиск пользователя в базе данных.
-2025-02-21 13:55:45,012 - INFO - Пользователь найден с ID 1
-2025-02-21 13:55:45,012 - INFO - Загрузка профиля пользователя из базы данных.
-2025-02-21 13:55:45,073 - INFO - Профиль пользователя: None
-2025-02-21 13:55:45,073 - INFO - Попытка получить избранное из кэша Redis.
-2025-02-21 13:55:45,078 - INFO - No favorites found in cache for user 1.
-2025-02-21 13:55:45,079 - INFO - Избранное не найдено в кэше. Загружаем из базы данных.
-2025-02-21 13:55:45,082 - INFO - Избранное загружено из БД: []
-2025-02-21 13:55:45,082 - INFO - Генерация токенов для пользователя.
-2025-02-21 13:55:45,083 - INFO - Токены успешно сгенерированы.
-2025-02-21 13:55:45,083 - INFO - Возвращаем ответ для пользователя с ID 1.
-2025-02-21 13:55:45,084 - INFO - Закрытие сессии с БД.
-2025-02-21 13:56:11,244 - INFO - Получен запрос на загрузку изображения от пользователя с ID: 1
-2025-02-21 13:56:11,252 - INFO - Изображение сохранено во временной директории: ./image_temp/65bc3bc5-b21f-4b2b-80be-bceb99b5b4c5_orig_cat.webp (Размер: 0.07 MB)
-2025-02-21 13:56:11,253 - INFO - Изображение успешно загружено: ./image_temp/65bc3bc5-b21f-4b2b-80be-bceb99b5b4c5_orig_cat.webp
-2025-02-21 13:56:32,369 - INFO - Получен запрос на загрузку видео от пользователя с ID: {current_user.user_id}
-2025-02-21 13:56:32,398 - INFO - видео сохранено во временной директории: ./video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4 (Размер: 2.35 MB)
-2025-02-21 13:56:32,398 - INFO - Видео успешно загружено: ./video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4
-2025-02-21 13:57:33,636 - INFO - Получены данные профиля: {'name': 'John Doe', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Gaming, Traveling', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x27b9B8cfa04fA08f66Ad694F679D86EBC7d75954'}
-2025-02-21 13:57:33,637 - INFO - Получены данные о изображении: {'image_path': './image_temp/65bc3bc5-b21f-4b2b-80be-bceb99b5b4c5_orig_cat.webp'}
-2025-02-21 13:57:33,637 - INFO - Получены данные о видео: {'video_path': './video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4'}
-2025-02-21 13:57:33,637 - INFO - Номер кошелька захэширован: 00592498ea57b21816d7f6e1da82c0914eb83fab68bd2439dfa9a3c1ab77fcea
-2025-02-21 13:57:33,637 - INFO - Путь к изображению: ./image_temp/65bc3bc5-b21f-4b2b-80be-bceb99b5b4c5_orig_cat.webp
-2025-02-21 13:57:33,637 - INFO - Путь к видео: ./video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4
-2025-02-21 13:57:33,638 - INFO - Абсолютный путь к изображению: /app/image_temp/65bc3bc5-b21f-4b2b-80be-bceb99b5b4c5_orig_cat.webp
-2025-02-21 13:57:33,638 - INFO - Абсолютный путь к видео: /app/video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4
-2025-02-21 13:57:33,643 - INFO - Изображение перемещено в директорию user_logo: ./user_logo/924550b6-dab5-486e-ac82-206a8646cc8e_65bc3bc5-b21f-4b2b-80be-bceb99b5b4c5_orig_cat.webp (Размер: 0.07 MB)
-2025-02-21 13:57:33,643 - INFO - Путь к файлу для сохранения в БД: ./user_logo/924550b6-dab5-486e-ac82-206a8646cc8e_65bc3bc5-b21f-4b2b-80be-bceb99b5b4c5_orig_cat.webp
-2025-02-21 13:57:33,643 - INFO - Изображение успешно перемещено в постоянную папку: ./user_logo/924550b6-dab5-486e-ac82-206a8646cc8e_65bc3bc5-b21f-4b2b-80be-bceb99b5b4c5_orig_cat.webp
-2025-02-21 13:57:33,643 - INFO - Обработка данных профиля...
-2025-02-21 13:57:33,644 - INFO - Соединение с Redis  для публикации задачи в канал установлено.
-2025-02-21 13:57:33,644 - INFO - Публикуемые данные в Redis: {input_path: /app/video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4, output_path: {'path': './output_video', 'status': 'exists'}, preview_path: {'path': './output_preview', 'status': 'exists'}, user_logo_url: ./user_logo/924550b6-dab5-486e-ac82-206a8646cc8e_65bc3bc5-b21f-4b2b-80be-bceb99b5b4c5_orig_cat.webp, wallet_number: 00592498ea57b21816d7f6e1da82c0914eb83fab68bd2439dfa9a3c1ab77fcea, form_data: {'name': 'John Doe', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Gaming, Traveling', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x27b9B8cfa04fA08f66Ad694F679D86EBC7d75954'}}
-2025-02-21 13:57:33,666 - INFO - Задача успешно отправлена в канал video_tasks: {'input_path': '/app/video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4', 'output_path': {'path': './output_video', 'status': 'exists'}, 'preview_path': {'path': './output_preview', 'status': 'exists'}, 'form_data': {'name': 'John Doe', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Gaming, Traveling', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x27b9B8cfa04fA08f66Ad694F679D86EBC7d75954'}, 'wallet_number': '00592498ea57b21816d7f6e1da82c0914eb83fab68bd2439dfa9a3c1ab77fcea', 'user_logo_url': './user_logo/924550b6-dab5-486e-ac82-206a8646cc8e_65bc3bc5-b21f-4b2b-80be-bceb99b5b4c5_orig_cat.webp'}
-2025-02-21 13:57:33,667 - INFO - Задача успешно отправлена в Redis.
-2025-02-21 13:57:33,669 - INFO - Получено сообщение от Redis: {'type': 'message', 'pattern': None, 'channel': 'video_tasks', 'data': '{"input_path": "/app/video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4", "output_path": {"path": "./output_video", "status": "exists"}, "preview_path": {"path": "./output_preview", "status": "exists"}, "form_data": {"name": "John Doe", "website_or_social": "https://twitter.com/johndoe", "activity_hobbies": "Gaming, Traveling", "hashtags": ["#gaming", "#travel", "#photography"], "adress": ["123 Example Street, Example City", "456 Another Street, Another City"], "city": "Example City", "coordinates": [[37.7749, -122.4194], [48.8566, 2.3522]], "is_in_mlm": 1, "is_incognito": false, "wallet_number": "0x27b9B8cfa04fA08f66Ad694F679D86EBC7d75954"}, "wallet_number": "00592498ea57b21816d7f6e1da82c0914eb83fab68bd2439dfa9a3c1ab77fcea", "user_logo_url": "./user_logo/924550b6-dab5-486e-ac82-206a8646cc8e_65bc3bc5-b21f-4b2b-80be-bceb99b5b4c5_orig_cat.webp"}'}
-2025-02-21 13:57:33,672 - INFO - Получена задача для обработки: {'input_path': '/app/video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4', 'output_path': {'path': './output_video', 'status': 'exists'}, 'preview_path': {'path': './output_preview', 'status': 'exists'}, 'form_data': {'name': 'John Doe', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Gaming, Traveling', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [[37.7749, -122.4194], [48.8566, 2.3522]], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x27b9B8cfa04fA08f66Ad694F679D86EBC7d75954'}, 'wallet_number': '00592498ea57b21816d7f6e1da82c0914eb83fab68bd2439dfa9a3c1ab77fcea', 'user_logo_url': './user_logo/924550b6-dab5-486e-ac82-206a8646cc8e_65bc3bc5-b21f-4b2b-80be-bceb99b5b4c5_orig_cat.webp'}
-2025-02-21 13:57:33,672 - INFO - Начинаю конвертацию видео /app/video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4 в VP9
-2025-02-21 13:57:33,672 - INFO - Запуск конвертации видео в VP9: /app/video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4 -> ./2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_converted.webm
-2025-02-21 13:58:24,195 - INFO - Конвертация в VP9 завершена: ./2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_converted.webm (Размер: 2.79 MB, Время: 50.52 сек.)
-2025-02-21 13:58:24,196 - INFO - Видео успешно обработано: ./2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_converted.webm (Размер: 2.79 MB)
-2025-02-21 13:58:24,196 - INFO - Путь к конвертированному видео: ./2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_converted.webm
-2025-02-21 13:58:24,196 - INFO - Задача конвертации для /app/video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4 завершена успешно
-2025-02-21 13:58:24,196 - INFO - Начинаю извлечение превью для /app/video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4
-2025-02-21 13:58:24,197 - INFO - Извлечение превью из видео: /app/video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4 -> ./2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_preview.webm (Длительность: 5 сек.)
-2025-02-21 13:58:30,878 - INFO - Извлечение превью завершено: ./2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_preview.webm (Размер: 0.33 MB, Время: 6.68 сек.)
-2025-02-21 13:58:30,879 - INFO - Превью успешно извлечено: ./2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_preview.webm (Размер: 0.33 MB)
-2025-02-21 13:58:30,879 - INFO - Путь к извлеченному превью: ./2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_preview.webm
-2025-02-21 13:58:30,879 - INFO - Извлечение превью для /app/video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4 завершено успешно
-2025-02-21 13:58:30,879 - INFO - Начинаю загрузку видео {'path': './output_video', 'status': 'exists'} и превью {'path': './output_preview', 'status': 'exists'} в S3
-2025-02-21 13:58:31,120 - INFO - Соединение с MinIO установлено успешно.
-2025-02-21 13:58:31,148 - INFO - Загрузка видео в S3: ./2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_converted.webm -> 2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_converted.webm
-2025-02-21 13:58:31,186 - INFO - Видео успешно загружено в S3: 2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_converted.webm
-2025-02-21 13:58:31,186 - INFO - Загрузка превью в S3: ./2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_preview.webm -> 2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_preview.webm
-2025-02-21 13:58:31,191 - INFO - Превью успешно загружено в S3: 2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_preview.webm
-2025-02-21 13:58:31,192 - INFO - Загруженные файлы: Видео - http://minio:9000/video-service/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_converted.webm, Превью - http://minio:9000/video-service/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_preview.webm
-2025-02-21 13:58:31,193 - INFO - Загрузка видео {'path': './output_video', 'status': 'exists'} в S3 завершена успешно. URL: http://minio:9000/video-service/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_converted.webm
-2025-02-21 13:58:31,193 - INFO - Загрузка превью {'path': './output_preview', 'status': 'exists'} в S3 завершена успешно. URL: http://minio:9000/video-service/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4_preview.webm
-2025-02-21 13:58:31,193 - INFO - Начинаю сохранение профиля в БД для пользователя John Doe
-2025-02-21 13:58:31,193 - INFO - Открытие сессии с БД...
-2025-02-21 13:58:31,194 - INFO - Сессия с БД успешно открыта.
-2025-02-21 13:58:31,348 - INFO - Видео, пользователь, логотип и хэштеги успешно сохранены для кошелька 00592498ea57b21816d7f6e1da82c0914eb83fab68bd2439dfa9a3c1ab77fcea
-2025-02-21 13:58:31,349 - INFO - Закрытие сессии с БД.
-2025-02-21 13:58:31,349 - INFO - Профиль с именем John Doe успешно сохранен в БД
-2025-02-21 13:58:31,349 - INFO - Весь цикл задач для /app/video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4 выполнен успешно!
-2025-02-21 13:58:31,349 - INFO - Данные задачи очищены.
-2025-02-21 14:00:46,680 - DEBUG - Получены данные: name='John Doe' website_or_social='https://twitter.com/johndoe' activity_hobbies='Gaming, Traveling' hashtags=['#gaming', '#travel', '#photography'] adress=['123 Example Street, Example City', '456 Another Street, Another City'] city='Example City' coordinates=[(37.7749, -122.4194), (48.8566, 2.3522)] is_in_mlm=1 is_incognito=False wallet_number='0x123abc456def'
-2025-02-21 14:00:46,681 - INFO - Получены данные формы  от пользователя с ID {current_user.user_id}: {'name': 'John Doe', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Gaming, Traveling', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x123abc456def'}
-2025-02-21 14:00:46,681 - INFO - Начало валидации и обработки данных формы.
-2025-02-21 14:00:46,682 - INFO - Проверка хэштегов на запрещённые слова.
-2025-02-21 14:00:46,683 - INFO - Запрещённые слова не обнаружены в хэштегах.
-2025-02-21 14:00:46,683 - INFO - Данные формы успешно обработаны.
-2025-02-21 14:00:46,683 - INFO - Данные формы успешно обработаны: {'status': 'success', 'data': {'name': 'John Doe', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Gaming, Traveling', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x123abc456def'}, 'message': 'Данные формы успешно обработаны'}
-2025-02-21 14:02:20,372 - ERROR - Ошибка при получении сообщения: Connection closed by server.
-2025-02-21 14:02:20,377 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,378 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,378 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,379 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,380 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,381 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,382 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,383 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,383 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,384 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,384 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,385 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,385 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,385 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,386 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,386 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,387 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,388 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,388 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,389 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,389 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,389 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,390 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,390 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,390 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,391 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,391 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,391 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,392 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,392 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,392 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,393 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,393 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,393 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,393 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,394 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,394 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,394 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,395 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,395 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,395 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,395 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,396 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,396 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,396 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,396 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,396 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,397 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,397 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,397 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,398 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,398 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,399 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,399 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,400 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,401 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,402 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,402 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,403 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
-2025-02-21 14:02:20,403 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:32:39,652 - INFO - Запуск приложения и инициализация базы данных...
+2025-02-22 11:32:39,652 - DEBUG - Начало инициализации базы данных...
+2025-02-22 11:32:39,721 - INFO - База данных успешно инициализирована.
+2025-02-22 11:32:39,721 - INFO - Приложение успешно запущено. Соединение с базой данных установлено.
+2025-02-22 11:32:39,721 - INFO - Директория уже существует: ./video_temp
+2025-02-22 11:32:39,722 - INFO - Директория уже существует: ./image_temp
+2025-02-22 11:32:39,722 - INFO - Директория уже существует: ./output_video
+2025-02-22 11:32:39,722 - INFO - Директория уже существует: ./output_preview
+2025-02-22 11:32:39,722 - INFO - Директория уже существует: ./user_logo
+2025-02-22 11:32:39,738 - INFO - Запуск подписки на канал Redis для получения задач
+2025-02-22 11:32:39,744 - INFO - Redis доступен.
+2025-02-22 11:32:39,745 - INFO - Подключаемся к Redis...
+2025-02-22 11:32:39,745 - INFO - Подписались на канал video_tasks
+2025-02-22 11:32:52,350 - INFO - Открытие сессии с БД...
+2025-02-22 11:32:52,352 - INFO - Сессия с БД успешно открыта.
+2025-02-22 11:32:52,367 - INFO - Начало хеширования номера кошелька.
+2025-02-22 11:32:52,367 - INFO - Хеш номера кошелька: 506e81c99176ffc7babd31b0707bb0756a65cc09ebb0c809f95f2171eced598a
+2025-02-22 11:32:52,367 - INFO - Поиск пользователя в базе данных.
+2025-02-22 11:32:52,396 - INFO - Пользователь найден с ID 3
+2025-02-22 11:32:52,396 - INFO - Загрузка профиля пользователя из базы данных.
+2025-02-22 11:32:52,441 - INFO - Профиль пользователя: None
+2025-02-22 11:32:52,442 - INFO - Попытка получить избранное из кэша Redis.
+2025-02-22 11:32:52,449 - INFO - No favorites found in cache for user 3.
+2025-02-22 11:32:52,449 - INFO - Избранное не найдено в кэше. Загружаем из базы данных.
+2025-02-22 11:32:52,452 - INFO - Избранное загружено из БД: []
+2025-02-22 11:32:52,452 - INFO - Генерация токенов для пользователя.
+2025-02-22 11:32:52,453 - INFO - Токены успешно сгенерированы.
+2025-02-22 11:32:52,453 - INFO - Возвращаем ответ для пользователя с ID 3.
+2025-02-22 11:32:52,454 - INFO - Закрытие сессии с БД.
+2025-02-22 11:33:19,218 - INFO - Получен запрос на загрузку изображения от пользователя с ID: 3
+2025-02-22 11:33:19,238 - INFO - Изображение сохранено во временной директории: ./image_temp/a3617ef4-108f-47dc-b861-d866b7ea75fa_orig_cat.webp (Размер: 0.07 MB)
+2025-02-22 11:33:19,239 - INFO - Изображение успешно загружено: ./image_temp/a3617ef4-108f-47dc-b861-d866b7ea75fa_orig_cat.webp
+2025-02-22 11:33:50,662 - INFO - Открытие сессии с БД...
+2025-02-22 11:33:50,665 - INFO - Сессия с БД успешно открыта.
+2025-02-22 11:33:50,670 - INFO - Получены данные профиля: {'name': 'John Doe', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Gaming, Traveling', 'hashtags': None, 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x27b9B8cfa04fA08f66Ad694F679D86EBC7d7355'}
+2025-02-22 11:33:50,670 - INFO - Получены данные о изображении: {'image_path': './image_temp/a3617ef4-108f-47dc-b861-d866b7ea75fa_orig_cat.webp'}
+2025-02-22 11:33:50,671 - INFO - Номер кошелька захэширован: 506e81c99176ffc7babd31b0707bb0756a65cc09ebb0c809f95f2171eced598a
+2025-02-22 11:33:50,671 - INFO - Путь к изображению: ./image_temp/a3617ef4-108f-47dc-b861-d866b7ea75fa_orig_cat.webp
+2025-02-22 11:33:50,671 - INFO - Абсолютный путь к изображению: /app/image_temp/a3617ef4-108f-47dc-b861-d866b7ea75fa_orig_cat.webp
+2025-02-22 11:33:50,677 - INFO - Изображение перемещено в директорию user_logo: ./user_logo/58a24fa4-7871-42d2-bcd2-31b1c16a660c_a3617ef4-108f-47dc-b861-d866b7ea75fa_orig_cat.webp (Размер: 0.07 MB)
+2025-02-22 11:33:50,677 - INFO - Путь к файлу для сохранения в БД: ./user_logo/58a24fa4-7871-42d2-bcd2-31b1c16a660c_a3617ef4-108f-47dc-b861-d866b7ea75fa_orig_cat.webp
+2025-02-22 11:33:50,677 - INFO - Изображение успешно перемещено в постоянную папку: ./user_logo/58a24fa4-7871-42d2-bcd2-31b1c16a660c_a3617ef4-108f-47dc-b861-d866b7ea75fa_orig_cat.webp
+2025-02-22 11:33:50,701 - INFO - Создан профиль для пользователя 3
+2025-02-22 11:33:50,702 - INFO - Закрытие сессии с БД.
+2025-02-22 11:34:35,629 - ERROR - Ошибка при получении сообщения: Connection closed by server.
+2025-02-22 11:34:35,633 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,634 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,634 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,635 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,636 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,637 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,638 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,639 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,640 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,641 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,642 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,642 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,643 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,643 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,643 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,644 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,644 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,645 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,646 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,646 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,646 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,647 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,647 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,647 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,647 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,648 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,648 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,648 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,648 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,649 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,649 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,649 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,650 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,650 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).
+2025-02-22 11:34:35,650 - ERROR - Ошибка при получении сообщения: Error 111 connecting to redis:6379. Connect call failed ('172.19.0.2', 6379).

@@ -45,7 +45,7 @@ from cashe import (
     get_profiles_by_hashtag
 )
 from tokens import TokenData, create_tokens, verify_access_token
-from utils import delete_old_files_task
+from utils import delete_old_files_task, parse_coordinates
 
 
 logger = get_logger()
@@ -437,112 +437,128 @@ async def save_profile(profile_data: FormData, image_data: dict, video_data: dic
 # Эндпоинт для сохранения юзера в БД без видео (нет смысла запускать фоновую задачу)
 @app.post("/save_profile_without_video/")
 async def create_or_update_user_profile(
-        profile_data: FormData,
-        image_data: dict,
-        _: TokenData = Depends(check_user_token),
-        session: AsyncSession = Depends(get_db_session),
+    form_data: FormData,
+    image_data: dict,
+    session: AsyncSession = Depends(get_db_session),
+    _: TokenData = Depends(check_user_token)
 ):
+    """
+    Эндпоинт для создания или обновления профиля пользователя без видео.
+    Если какое-то поле не передано, оно перезаписывается в NULL в БД.
+    """
+
+    # Преобразование данных формы в словарь
+    form_data_dict = form_data.dict()
+
+    # Сериализация данных формы (HttpUrl в строку)
+    form_data_dict = await serialize_form_data(form_data_dict)
+
+    # Лог полученных данных
+    logger.info(f"Получены данные профиля: {form_data_dict}")
+    logger.info(f"Получены данные о изображении: {image_data}")
+
+    # Извлечение номера кошелька и хэширование
     try:
-        # 1. Хэшируем номер кошелька
-        wallet_number = profile_data.get("wallet_number")
+        wallet_number = form_data_dict.get("wallet_number")
         if not wallet_number:
-            raise HTTPException(status_code=400, detail="Номер кошелька обязателен.")
+            raise ValueError("Номер кошелька не указан.")
 
         hashed_wallet_number = hashlib.sha256(wallet_number.encode()).hexdigest()
         logger.info(f"Номер кошелька захэширован: {hashed_wallet_number}")
+    except Exception as e:
+        logger.error(f"Ошибка при хэшировании номера кошелька: {str(e)}")
+        raise HTTPException(status_code=400, detail="Ошибка при обработке номера кошелька.")
 
-        # 2. Проверяем обязательное поле "имя"
-        if "name" not in profile_data or not profile_data["name"]:
-            raise HTTPException(status_code=400, detail="Имя пользователя обязательно.")
-
-        # 3. Проверяем изображение
+    # Извлечение пути к изображению из JSON
+    try:
         image_path = image_data.get("image_path")
         if not image_path:
-            raise HTTPException(status_code=400, detail="Путь к изображению не указан.")
+            raise ValueError("Путь к изображению не найден в данных JSON.")
 
-        absolute_image_path = os.path.abspath(image_path)
-        logger.info(f"Абсолютный путь к изображению: {absolute_image_path}")
+        logger.info(f"Путь к изображению: {image_path}")
+    except Exception as e:
+        logger.error(f"Ошибка при извлечении путей из JSON: {str(e)}")
+        raise HTTPException(status_code=400, detail="Ошибка при извлечении путей из JSON.")
 
-        if not os.path.isfile(absolute_image_path):
-            raise HTTPException(status_code=400, detail="Изображение не найдено.")
+    # Получение директорий из состояния приложения
+    created_dirs = app.state.created_dirs
+    if not created_dirs:
+        logger.error("Каталоги для сохранения файлов не были инициализированы.")
+        raise HTTPException(status_code=500, detail="Ошибка при инициализации каталогов.")
 
-        # 4. Получаем каталоги из состояния приложения
-        created_dirs = router.app.state.created_dirs
-        if not created_dirs:
-            raise HTTPException(status_code=500, detail="Ошибка инициализации каталогов.")
+    # Преобразование пути к изображению в абсолютный
+    absolute_image_path = os.path.abspath(image_path)
+    logger.info(f"Абсолютный путь к изображению: {absolute_image_path}")
 
-        # 5. Перемещаем изображение в постоянную папку
-        try:
-            user_logo_path = await move_image_to_user_logo(absolute_image_path, created_dirs)
-            logger.info(f"Изображение перемещено в папку: {user_logo_path}")
-        except Exception as e:
-            logger.error(f"Ошибка при перемещении изображения: {str(e)}")
-            raise HTTPException(status_code=500, detail="Ошибка сохранения изображения.")
+    # Проверка существования изображения
+    if not os.path.isfile(absolute_image_path):
+        logger.error(f"Путь к изображению не ведет к файлу: {absolute_image_path}")
+        raise HTTPException(status_code=400, detail="Указанный путь к изображению не ведет к файлу.")
 
-        # 6. Получаем пользователя по кошельку
-        stmt = select(User).where(User.wallet_number == wallet_number)
-        result = await session.execute(stmt)
-        user = result.scalars().first()
+    # Перенос изображения в постоянную папку "user_logo"
+    try:
+        user_logo_path = await move_image_to_user_logo(absolute_image_path, created_dirs)
+        logger.info(f"Изображение успешно перемещено в постоянную папку: {user_logo_path}")
+    except Exception as e:
+        logger.error(f"Ошибка при перемещении изображения: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при перемещении изображения: {str(e)}")
 
-        if not user:
-            raise HTTPException(status_code=404, detail="Пользователь с таким номером кошелька не найден.")
+    # Преобразование user_logo_path в строку, если это HttpUrl
+    if isinstance(user_logo_path, HttpUrl):
+        user_logo_path = str(user_logo_path)
 
-        # 7. Проверка флага is_profile_created
-        if not user.is_profile_created:
-            # Проверяем координаты
-            coordinates = profile_data.get("coordinates")
-            multi_point_wkt = None
-            if coordinates:
-                points = [Point(coord[1], coord[0]) for coord in coordinates]  # Долгота, Широта
-                multi_point = MultiPoint(points)
-                multi_point_wkt = str(multi_point)
+    # Ищем пользователя в БД
+    stmt = select(User).where(User.wallet_number == hashed_wallet_number)
+    result = await session.execute(stmt)
+    user = result.scalars().first()
 
-            # Создаём новый профиль
-            new_profile = UserProfiles(
-                user_id=user.id,
-                hashed_wallet_number=hashed_wallet_number,
-                user_logo_url=str(user_logo_path),
-                coordinates_wkt=multi_point_wkt,  # Сохраняем координаты, если они есть
-                **{k: v for k, v in profile_data.items() if
-                   k in UserProfiles.__table__.columns and k != "wallet_number"}
-            )
-            session.add(new_profile)
-            user.is_profile_created = True  # Обновляем флаг у пользователя
-            logger.info(f"Создан новый профиль для пользователя {user.id}")
-        else:
-            # Обновляем существующий профиль
-            stmt = select(UserProfiles).where(UserProfiles.user_id == user.id)
-            result = await session.execute(stmt)
-            profile = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Пользователь с данным кошельком не найден.")
 
-            if not profile:
-                raise HTTPException(status_code=404, detail="Профиль пользователя не найден.")
+    # Обрабатываем координаты через parse_coordinates
+    multi_point_wkt = await parse_coordinates(form_data.coordinates)
 
-            # Сохраняем старое значение is_admin
-            current_is_admin = profile.is_admin
+    # Проверяем, есть ли уже профиль у пользователя
+    stmt = select(UserProfiles).where(UserProfiles.user_id == user.id)
+    result = await session.execute(stmt)
+    profile = result.scalars().first()
 
-            # Обновляем только переданные и непустые значения
-            for key, value in profile_data.items():
-                if key in UserProfiles.__table__.columns and key != "wallet_number" and value is not None:
-                    setattr(profile, key, value)
+    # Если профиль найден, обновляем его, если нет — создаем новый
+    if profile:
+        profile.name = form_data.name
+        profile.website_or_social = form_data.website_or_social if form_data.website_or_social is not None else None
+        profile.activity_and_hobbies = form_data.activity_hobbies if form_data.activity_hobbies is not None else None
+        profile.user_logo_url = user_logo_path
+        profile.adress = form_data.adress if form_data.adress is not None else None
+        profile.city = form_data.city if form_data.city is not None else None
+        profile.coordinates = multi_point_wkt if form_data.coordinates is not None else None
+        profile.is_in_mlm = form_data.is_in_mlm if form_data.is_in_mlm is not None else None
+        profile.is_incognito = form_data.is_incognito
 
-            # Проверяем, пришли ли координаты
-            coordinates = profile_data.get("coordinates")
-            if coordinates:
-                points = [Point(coord[1], coord[0]) for coord in coordinates]  # Долгота, Широта
-                multi_point = MultiPoint(points)
-                profile.coordinates_wkt = str(multi_point)
+        session.add(profile)
+        logger.info(f"Обновлен профиль пользователя {user.id}")
+    else:
+        new_profile = UserProfiles(
+            name=form_data.name,
+            website_or_social=form_data.website_or_social,
+            activity_and_hobbies=form_data.activity_hobbies,
+            user_logo_url=user_logo_path,
+            adress=form_data.adress,
+            city=form_data.city,
+            coordinates=multi_point_wkt,
+            is_in_mlm=form_data.is_in_mlm,
+            is_incognito=form_data.is_incognito,
+            is_moderated=False,
+            is_admin=False,
+            user_id=user.id
+        )
 
-            # Возвращаем старое значение is_admin
-            profile.is_admin = current_is_admin
+        user.is_profile_created = True
+        session.add(new_profile)
+        logger.info(f"Создан профиль для пользователя {user.id}")
 
-            logger.info(f"Профиль пользователя {user.id} обновлён.")
+    return {"message": "Профиль успешно сохранен"}
 
-        await session.commit()
-        await session.refresh(user)
-        await session.refresh(profile)
-
-        return {"status": "updated" if user.is_profile_created else "created", "user_id": user.id}
 
 
 # ЭНДПОИНТЫ ДЛЯ РАБОТЫ С КЭШЕМ
@@ -850,7 +866,7 @@ async def refresh_tokens_endpoint(refresh_token: str):
 # ЗАПУСК ЗАДАЧ, ВЫПОЛНЯЮЩИХСЯ ПО РАСПИСАНИЮ
 
 # Настройка APScheduler для выполнения задач по расписанию
-def start_scheduler():
+async def start_scheduler():
     scheduler = AsyncIOScheduler()
 
     # Задача, которая выполняется каждые 3 минуты

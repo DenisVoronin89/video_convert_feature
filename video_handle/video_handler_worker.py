@@ -262,17 +262,17 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
 
                 # Обновляем данные профиля
                 profile.name = form_data["name"]
-                profile.website_or_social = form_data["website_or_social"]
-                profile.activity_and_hobbies = form_data["activity_hobbies"]
+                profile.website_or_social = form_data.website_or_social if form_data.website_or_social is not None else None
+                profile.activity_and_hobbies = form_data["activity_hobbies"] if form_data.activity_hobbies is not None else None
                 profile.video_url = video_url
                 profile.preview_url = preview_url
                 profile.user_logo_url = user_logo_url
-                profile.adress = form_data["adress"]
-                profile.city = form_data["city"]
-                profile.coordinates = multi_point_wkt
+                profile.adress = form_data["adress"] if form_data.adress is not None else None
+                profile.city = form_data["city"] if form_data.city is not None else None
+                profile.coordinates = multi_point_wkt if form_data.coordinates is not None else None
                 profile.is_incognito = False
                 profile.is_moderated = False
-                profile.is_in_mlm = form_data["is_in_mlm"]
+                profile.is_in_mlm = form_data["is_in_mlm"] if form_data.is_in_mlm is not None else None
 
                 # Возвращаем старое значение is_admin
                 profile.is_admin = current_is_admin

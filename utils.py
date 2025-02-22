@@ -4,6 +4,7 @@ import os
 import time
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from shapely.geometry import Point, MultiPoint
 
 from logging_config import get_logger
 
@@ -83,3 +84,15 @@ async def delete_old_files_task():
     except Exception as e:
         logger.error(f"Ошибка при удалении старых файлов: {e}")
 
+
+
+async def parse_coordinates(coordinates):
+    """Функция для парсинга координат в WKT строку"""
+    if coordinates:
+        # Преобразуем каждую пару координат (долгота, широта) в объект Point
+        points = [Point(coord[1], coord[0]) for coord in coordinates]  # Долгота, Широта
+        # Создаем MultiPoint из всех точек
+        multi_point = MultiPoint(points)
+        # Преобразуем MultiPoint в строку WKT
+        return str(multi_point)
+    return None
