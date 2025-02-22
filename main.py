@@ -19,6 +19,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 
+from fake_profiles import generate_profiles
+
 from database import init_db, engine, get_db_session
 from logging_config import get_logger
 from video_handle.video_handler_publisher import publish_task
@@ -40,9 +42,9 @@ from cashe import (
     remove_from_favorites,
     get_favorites_from_cache,
     sync_data_to_db,
-    get_profiles_from_db,
     cache_profiles_in_redis,
-    get_profiles_by_hashtag
+    get_profiles_by_hashtag,
+    get_sorted_profiles
 )
 from tokens import TokenData, create_tokens, verify_access_token
 from utils import delete_old_files_task, parse_coordinates
@@ -561,7 +563,7 @@ async def create_or_update_user_profile(
 
 
 
-# ЭНДПОИНТЫ ДЛЯ РАБОТЫ С КЭШЕМ
+# ЭНДПОИНТЫ ДЛЯ РАБОТЫ С ИЗБРАННЫМ И СЧЕТЧИКАМИ ПОДПИСЧИКОВ
 
 # Эндпоинт для добавления в избранное и увеличения счётчика подписчиков
 @app.post("/favorites/add/")
@@ -652,6 +654,8 @@ async def get_favorites(user_id: int, redis_client: redis.Redis = Depends(get_re
         raise HTTPException(status_code=500, detail="Ошибка сервера")
 
 
+# ЭНДПОИНТЫ ДЛЯ ОТДАЧИ ПРОФИЛЕЙ
+
 # Эндпоинт для получения первых 50 профилей
 @app.get("/profiles/main")
 async def get_profiles(
@@ -671,7 +675,7 @@ async def get_profiles(
             return JSONResponse(content=cached_profiles)
 
         # Если кэш пуст, получаем профили из базы данных
-        profiles_from_db = await get_profiles_from_db(session)
+        profiles_from_db = await get_sorted_profiles(session)
 
         # Возвращаем полученные профили
         return JSONResponse(content=profiles_from_db)
@@ -863,6 +867,18 @@ async def refresh_tokens_endpoint(refresh_token: str):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Ошибка при генерации новых токенов")
 
 
+
+
+@app.post("/fill-database")
+async def fill_database(session: AsyncSession = Depends(get_db_session)):
+    try:
+        await generate_profiles()
+        return {"message": "Database filled successfully!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 # ЗАПУСК ЗАДАЧ, ВЫПОЛНЯЮЩИХСЯ ПО РАСПИСАНИЮ
 
 # Настройка APScheduler для выполнения задач по расписанию
@@ -874,7 +890,7 @@ async def start_scheduler():
     logger.info("Задача sync_data_to_db добавлена в расписание (каждые 3 минуты).")
 
     # Задача, которая выполняется каждую минуту
-    scheduler.add_job(get_profiles_from_db, IntervalTrigger(minutes=1))
+    scheduler.add_job(get_sorted_profiles(), IntervalTrigger(minutes=1))
     logger.info("Задача get_profiles_from_db добавлена в расписание (каждую минуту).")
 
     # Задача очистки временных файлов, выполняемая ежедневно в 00:00

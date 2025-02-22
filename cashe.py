@@ -6,6 +6,7 @@ import redis.asyncio as redis
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from fastapi import Depends
 
 from logging_config import get_logger
 from database import get_db_session
@@ -220,15 +221,15 @@ async def cache_profiles_in_redis(profiles):
         raise Exception("Не удалось закэшировать профили.") from e
 
 
-# Получение 50 профилей на первоначальную отдачу клиенту(при входе в приложение - мгновенный показ этих профилей)
-async def get_sorted_profiles(session):
+# Получение 50 профилей на первоначальную отдачу клиенту
+async def get_sorted_profiles(session: AsyncSession = Depends(get_db_session)):
     """
     Получает 50 профилей по следующим критериям:
     1. 10 самых популярных профилей по количеству подписчиков.
     2. 10 самых новых профилей по дате создания.
     3. 10 профилей с наличием MLM.
-    4. 20 случайных профилей.
-
+    4. 10 случайных профилей.
+    5. 10 профилей без видео.
     :param session: SQLAlchemy сессия для работы с базой данных.
     :return: Список словарей с полными данными профилей.
     """
@@ -283,7 +284,7 @@ async def get_sorted_profiles(session):
 
         logger.info(f"Получено {len(mlm_profiles)} профилей с MLM.")
 
-        # 20 случайных (исключаем инкогнито)
+        # 10 случайных (исключаем инкогнито)
         random_profiles_stmt = (
             select(UserProfiles)
             .options(
@@ -292,15 +293,31 @@ async def get_sorted_profiles(session):
             )
             .filter(UserProfiles.is_incognito == False)  # Фильтруем по инкогнито
             .order_by(func.random())
-            .limit(20)
+            .limit(10)
         )
         random_profiles = await session.execute(random_profiles_stmt)
         random_profiles = random_profiles.scalars().all()
 
         logger.info(f"Получено {len(random_profiles)} случайных профилей.")
 
+        # 10 профилей без видео (где video_url пустое)
+        no_video_profiles_stmt = (
+            select(UserProfiles)
+            .options(
+                joinedload(UserProfiles.user),
+                joinedload(UserProfiles.hashtags)
+            )
+            .filter(UserProfiles.video_url == None)  # Профили без видео
+            .filter(UserProfiles.is_incognito == False)  # Фильтруем по инкогнито
+            .limit(10)
+        )
+        no_video_profiles = await session.execute(no_video_profiles_stmt)
+        no_video_profiles = no_video_profiles.scalars().all()
+
+        logger.info(f"Получено {len(no_video_profiles)} профилей без видео.")
+
         # Объединяем все профили
-        profiles = popular_profiles + new_profiles + mlm_profiles + random_profiles
+        profiles = popular_profiles + new_profiles + mlm_profiles + random_profiles + no_video_profiles
         logger.info(f"Общее количество полученных профилей: {len(profiles)}")
 
         # Преобразование профилей в словари для отдачи всех данных на фронт
@@ -319,6 +336,7 @@ async def get_sorted_profiles(session):
                 "adress": profile.adress,
                 "coordinates": profile.coordinates,
                 "followers_count": profile.followers_count,
+                "website_or_social": profile.website_or_social,  # Добавляем поле website_or_social
                 "user": {
                     "id": profile.user.id,
                     "wallet_number": profile.user.wallet_number,
@@ -336,6 +354,7 @@ async def get_sorted_profiles(session):
     except Exception as e:
         logger.error(f"Ошибка при выборке профилей: {str(e)}")
         raise Exception("Не удалось получить профили из базы данных.") from e
+
 
 
 # Получение кэшированных профилей из Redis
@@ -360,20 +379,7 @@ async def get_cached_profiles():
         raise Exception("Не удалось получить данные из кэша.") from e
 
 
-# Получение профилей из БД если в Редисе пусто
-async def get_profiles_from_db(session: AsyncSession):
-    """
-    Получаем 50 профилей из базы данных согласно алгоритму.
 
-    :param session: Асинхронная сессия SQLAlchemy для работы с БД.
-    :return: Список профилей.
-    """
-    try:
-        profiles = await get_sorted_profiles(session)
-        return profiles
-    except Exception as e:
-        logger.error(f"Ошибка при получении профилей из базы данных: {str(e)}")
-        raise HTTPException(status_code=500, detail="Ошибка при получении профилей из БД.")
 
 
 # Получение профилей по хэштегам с кэшированием и сортировкой

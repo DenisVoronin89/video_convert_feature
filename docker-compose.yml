@@ -13,6 +13,8 @@ services:
     volumes:
       - ./init_postgis.sql:/docker-entrypoint-initdb.d/init_postgis.sql
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"  # Пробрасываем порт 5432 наружу (для тейбл плюс)
 
 
   redis:
