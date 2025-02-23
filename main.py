@@ -18,7 +18,7 @@ import hashlib
 from typing import Optional, List
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-
+from apscheduler.triggers.cron import CronTrigger
 
 from fake_profiles import generate_profiles
 
@@ -82,6 +82,29 @@ app.add_middleware(
 app.mount("/user_logo", StaticFiles(directory="user_logo"), name="user_logo")
 
 
+# Настройка APScheduler для выполнения задач по расписанию
+async def start_scheduler():
+    """Запуск планировщика задач."""
+    scheduler = AsyncIOScheduler()
+
+    # Задача, которая выполняется каждые 3 минуты (слив каунтера звездочек и избранного из Редиски в БД)
+    # Вместо использования asyncio.run() вызываем саму асинхронную функцию
+    scheduler.add_job(sync_data_to_db, IntervalTrigger(minutes=3))
+    logger.info("Задача sync_data_to_db добавлена в расписание (каждые 3 минуты).")
+
+    # Задача, которая выполняется каждую минуту (получаем в Редиску 50 профилей на отгрузку при входе в приложение)
+    scheduler.add_job(get_sorted_profiles, IntervalTrigger(minutes=1))
+    logger.info("Задача get_sorted_profiles добавлена в расписание (каждую минуту).")
+
+    # Задача очистки временных файлов, выполняемая ежедневно в 00:00
+    scheduler.add_job(delete_old_files_task, CronTrigger(hour=0, minute=0, second=0))
+    logger.info("Задача delete_old_files_task добавлена в расписание (ежедневно в 00:00).")
+
+    # Старт планировщика
+    scheduler.start()
+    logger.info("Планировщик задач успешно запущен.")
+
+
 @app.on_event("startup")
 async def startup():
     """Функция запуска приложения"""
@@ -108,6 +131,9 @@ async def startup():
         if dirs_created:
             logger.info(f"Директории для использования успешно созданы: {dirs_created}")
 
+        # Запуск планировщика задач
+        await start_scheduler()
+
     except RuntimeError as e:
         logger.error(f"Ошибка при старте приложения: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при старте приложения: {str(e)}")
@@ -119,6 +145,7 @@ async def startup():
     except Exception as e:
         logger.error(f"Неизвестная ошибка: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Неизвестная ошибка: {str(e)}")
+
 
 
 @app.on_event("shutdown")
@@ -955,38 +982,4 @@ async def fill_database(session: AsyncSession = Depends(get_db_session)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-
-# ЗАПУСК ЗАДАЧ, ВЫПОЛНЯЮЩИХСЯ ПО РАСПИСАНИЮ
-
-# Настройка APScheduler для выполнения задач по расписанию
-async def start_scheduler():
-    scheduler = AsyncIOScheduler()
-
-    # Задача, которая выполняется каждые 3 минуты
-    scheduler.add_job(sync_data_to_db, IntervalTrigger(minutes=3))
-    logger.info("Задача sync_data_to_db добавлена в расписание (каждые 3 минуты).")
-
-    # Задача, которая выполняется каждую минуту
-    scheduler.add_job(get_sorted_profiles(), IntervalTrigger(minutes=1))
-    logger.info("Задача get_profiles_from_db добавлена в расписание (каждую минуту).")
-
-    # Задача очистки временных файлов, выполняемая ежедневно в 00:00
-    scheduler.add_job(
-        delete_old_files_task,
-        CronTrigger(hour=0, minute=0, second=0)
-    )
-    logger.info("Задача delete_old_files_task добавлена в расписание (ежедневно в 00:00).")
-
-    # Старт планировщика
-    scheduler.start()
-    logger.info("Планировщик запущен и настроен.")
-
-
-# Запуск планировщика с асинхронным циклом
-if __name__ == "__main__":
-    start_scheduler()  # Запускаем планировщик
-    try:
-        asyncio.get_event_loop().run_forever()  # Запускаем текущий цикл для работы с асинхронными задачами
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Сервер остановлен.")
 
