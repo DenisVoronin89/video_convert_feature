@@ -129,14 +129,14 @@ MIME-тип или расширение, но на самом деле явля�
     "is_in_mlm": 1,
     "is_incognito": false,
     "name": "John Doe",
-    "wallet_number": "0x27b9B8cfa04fA08f66Ad674F679D86EBC7d4355",
+    "wallet_number": "0x27b9B8cfa04fA08f66Ad674F677D86EBC7d4355",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/85ca6203-4531-40f4-9f75-af7b5acdcfd1_orig_cat.webp"
+    "image_path": "./image_temp/59cfd95b-8eb1-40ae-a3cb-1ef6c71f5294_orig_cat.webp"
   },
   "video_data": {
-    "video_path": "./video_temp/7ac123fa-b952-45d1-8985-95b84e73eecd_ptichka.mp4"
+    "video_path": "./video_temp/4598a370-b9c6-491b-bcb7-dbe543204bff_ptichka.mp4"
   }
 }
 

@@ -217,14 +217,16 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                 raise HTTPException(status_code=400, detail="Пользователь с данным кошельком не найден.")
 
             # Получаем координаты из form_data
-            coordinates = form_data["coordinates"]
+            coordinates = form_data.get("coordinates")
 
-            # Преобразуем каждую пару координат в объект Point, а затем создаём MultiPoint
-            points = [Point(coord[1], coord[0]) for coord in coordinates]  # Долгота, Широта
-            multi_point = MultiPoint(points)
-
-            # Преобразуем MultiPoint в строку WKT
-            multi_point_wkt = str(multi_point)
+            # Преобразуем координаты в строку WKT, если они есть
+            multi_point_wkt = None
+            if coordinates:
+                # Преобразуем каждую пару координат в объект Point, а затем создаём MultiPoint
+                points = [Point(coord[1], coord[0]) for coord in coordinates]  # Долгота, Широта
+                multi_point = MultiPoint(points)
+                # Преобразуем MultiPoint в строку WKT
+                multi_point_wkt = str(multi_point)
 
             # 2. Проверка флага is_profile_created
             if not user.is_profile_created:
@@ -269,7 +271,7 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                 profile.user_logo_url = user_logo_url
                 profile.adress = form_data["adress"] if form_data["adress"] is not None else None
                 profile.city = form_data["city"] if form_data["city"] is not None else None
-                profile.coordinates = multi_point_wkt if form_data["coordinates"] is not None else None
+                profile.coordinates = multi_point_wkt if coordinates is not None else None
                 profile.is_incognito = False
                 profile.is_moderated = False
                 profile.is_in_mlm = form_data["is_in_mlm"] if form_data["is_in_mlm"] is not None else None

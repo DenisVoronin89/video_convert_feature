@@ -773,19 +773,30 @@ async def get_profiles(
     """
     try:
         # Проверяем, есть ли кэшированные профили
-        cached_profiles = await get_cached_profiles(redis)  # Передаем redis клиент
+        cached_profiles = await get_cached_profiles(redis_client)
         if cached_profiles:
-            # Если кэш есть, возвращаем его
+            logger.info("Профили успешно возвращены клиенту из кэша.")
             return JSONResponse(content=cached_profiles)
 
         # Если кэш пуст, получаем профили из базы данных
         profiles_from_db = await get_sorted_profiles(session)
+        logger.info("Профили успешно загружены из базы данных.")
 
-        # Возвращаем полученные профили
+        # Сохраняем полученные профили в Redis
+        try:
+            await redis_client.set("profiles_cache", json.dumps(profiles_from_db), ex=3600)
+            logger.info("Профили успешно сохранены в кэше Redis.")
+        except RedisError as redis_e:
+            logger.error(f"Ошибка при записи данных в Redis: {str(redis_e)}")
+
+        logger.info("Профили успешно возвращены клиенту из базы данных.")
         return JSONResponse(content=profiles_from_db)
 
+    except HTTPException:
+        raise  # Пробрасываем HTTP-исключения без изменений
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка при получении профилей: {str(e)}")
+        logger.error(f"Ошибка в эндпоинте /profiles/main: {str(e)}")
+        raise HTTPException(status_code=500, detail="Ошибка при получении профилей")
 
 
 # Эндпоинт для получения всех профилей

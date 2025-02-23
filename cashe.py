@@ -232,15 +232,6 @@ async def cache_profiles_in_redis(profiles):
 
 # Получение 50 профилей на первоначальную отдачу клиенту
 async def get_sorted_profiles():
-    """
-    Получает 50 профилей по следующим критериям:
-    1. 10 самых популярных профилей по количеству подписчиков.
-    2. 10 самых новых профилей по дате создания.
-    3. 10 профилей с наличием MLM.
-    4. 10 случайных профилей.
-    5. 10 профилей без видео.
-    :return: Список словарей с полными данными профилей.
-    """
     async with get_db_session_for_worker() as session:
         try:
             global startup_logged
@@ -248,101 +239,60 @@ async def get_sorted_profiles():
                 logger.info("Запуск выборки профилей из базы данных.")
                 startup_logged = True
 
-            # 10 самых популярных (исключаем инкогнито)
-            popular_profiles_stmt = (
-                select(UserProfiles)
-                .options(
-                    joinedload(UserProfiles.user),
-                    joinedload(UserProfiles.hashtags)
-                )
-                .filter(UserProfiles.is_incognito == False)  # Фильтруем по инкогнито
-                .order_by(UserProfiles.followers_count.desc())
-                .limit(10)
-            )
-            popular_profiles = await session.execute(popular_profiles_stmt)
-            popular_profiles = popular_profiles.scalars().unique().all()  # Убираем дубли
+            # Базовый запрос с загрузкой хэштегов и пользователя
+            base_query = select(UserProfiles).options(
+                joinedload(UserProfiles.user),
+                joinedload(UserProfiles.hashtags)  # Загружаем хэштеги
+            ).filter(UserProfiles.is_incognito == False)
 
-            # 10 самых новых (исключаем инкогнито)
-            new_profiles_stmt = (
-                select(UserProfiles)
-                .options(
-                    joinedload(UserProfiles.user),
-                    joinedload(UserProfiles.hashtags)
-                )
-                .filter(UserProfiles.is_incognito == False)  # Фильтруем по инкогнито
-                .order_by(UserProfiles.created_at.desc())
-                .limit(10)
-            )
-            new_profiles = await session.execute(new_profiles_stmt)
-            new_profiles = new_profiles.scalars().unique().all()  # Убираем дубли
+            # Получаем профили по критериям
+            popular_profiles = (await session.execute(
+                base_query.order_by(UserProfiles.followers_count.desc()).limit(10)
+            )).scalars().unique().all()
 
-            # 10 с наличием MLM (исключаем инкогнито и фильтруем значения для is_in_mlm)
-            mlm_profiles_stmt = (
-                select(UserProfiles)
-                .options(
-                    joinedload(UserProfiles.user),
-                    joinedload(UserProfiles.hashtags)
-                )
-                .filter(UserProfiles.is_in_mlm != 0)  # Фильтруем записи с ненулевым значением
-                .filter(UserProfiles.is_in_mlm.isnot(None))  # Исключаем NULL значения
-                .filter(UserProfiles.is_incognito == False)  # Фильтруем по инкогнито
-                .limit(10)
-            )
-            mlm_profiles = await session.execute(mlm_profiles_stmt)
-            mlm_profiles = mlm_profiles.scalars().unique().all()  # Убираем дубли
+            new_profiles = (await session.execute(
+                base_query.order_by(UserProfiles.created_at.desc()).limit(10)
+            )).scalars().unique().all()
 
-            # 10 случайных (исключаем инкогнито)
-            random_profiles_stmt = (
-                select(UserProfiles)
-                .options(
-                    joinedload(UserProfiles.user),
-                    joinedload(UserProfiles.hashtags)
-                )
-                .filter(UserProfiles.is_incognito == False)  # Фильтруем по инкогнито
-                .order_by(func.random())
-                .limit(10)
-            )
-            random_profiles = await session.execute(random_profiles_stmt)
-            random_profiles = random_profiles.scalars().unique().all()  # Убираем дубли
+            mlm_profiles = (await session.execute(
+                base_query.filter(UserProfiles.is_in_mlm.isnot(None), UserProfiles.is_in_mlm != 0).limit(10)
+            )).scalars().unique().all()
 
-            # 10 профилей без видео (где video_url пустое)
-            no_video_profiles_stmt = (
-                select(UserProfiles)
-                .options(
-                    joinedload(UserProfiles.user),
-                    joinedload(UserProfiles.hashtags)
-                )
-                .filter(UserProfiles.video_url == None)  # Профили без видео
-                .filter(UserProfiles.is_incognito == False)  # Фильтруем по инкогнито
-                .limit(10)
-            )
-            no_video_profiles = await session.execute(no_video_profiles_stmt)
-            no_video_profiles = no_video_profiles.scalars().unique().all()  # Убираем дубли
+            random_profiles = (await session.execute(
+                base_query.order_by(func.random()).limit(10)
+            )).scalars().unique().all()
+
+            no_video_profiles = (await session.execute(
+                base_query.filter(UserProfiles.video_url == None).limit(10)
+            )).scalars().unique().all()
 
             # Объединяем все профили
             profiles = popular_profiles + new_profiles + mlm_profiles + random_profiles + no_video_profiles
+            logger.info(f"Выбрано {len(profiles)} профилей.")
 
-            # Преобразование профилей в словари для отдачи всех данных на фронт
             result = []
             for profile in profiles:
-                # Логируем, какие координаты вытаскиваем
-                logger.info(f"Обрабатываем профиль ID {profile.id} с координатами: {profile.coordinates}")
+                # Логируем хэштеги
+                if profile.hashtags:
+                    hashtags = [hashtag.tag for hashtag in profile.hashtags]
+                else:
+                    logger.warning(f"Профиль {profile.id} не имеет хэштегов, хотя должен.")
+                    hashtags = []
 
+                # Логируем и парсим координаты
                 coordinates = None
                 if profile.coordinates:
                     try:
-                        # Преобразуем WKB в геометрический объект с помощью geoalchemy2
                         geometry = to_shape(profile.coordinates)
-                        # Обрабатываем Point и MultiPoint
                         if isinstance(geometry, Point):
-                            coordinates = list(geometry.coords)  # Для Point возвращаем координаты
+                            coordinates = [geometry.x, geometry.y]
                         elif isinstance(geometry, MultiPoint):
-                            coordinates = [list(coord) for coord in geometry.geoms]  # Для MultiPoint получаем список координат
-                        logger.info(f"Координаты после парсинга для профиля {profile.id}: {coordinates}")
+                            coordinates = [[point.x, point.y] for point in geometry.geoms]
+                        logger.info(f"Координаты профиля {profile.id}: {coordinates}")
                     except Exception as e:
-                        logger.error(f"Ошибка при парсинге координат профиля {profile.id}: {str(e)}")
+                        logger.error(f"Ошибка при обработке координат профиля {profile.id}: {str(e)}")
 
-                # Формируем словарь профиля
+                # Собираем профиль
                 result.append({
                     "id": profile.id,
                     "created_at": profile.created_at,
@@ -355,38 +305,31 @@ async def get_sorted_profiles():
                     "is_incognito": profile.is_incognito,
                     "is_in_mlm": profile.is_in_mlm,
                     "adress": profile.adress,
-                    "coordinates": coordinates,  # Отдаем уже преобразованные координаты
+                    "coordinates": coordinates,
                     "followers_count": profile.followers_count,
-                    "website_or_social": profile.website_or_social,  # Добавляем поле website_or_social
+                    "website_or_social": profile.website_or_social,
                     "user": {
                         "id": profile.user.id,
                         "wallet_number": profile.user.wallet_number,
                     },
-                    "hashtags": [hashtag.tag for hashtag in profile.hashtags],
+                    "hashtags": hashtags,
                 })
 
-            # Логируем успешное получение профилей
-            if not startup_logged:
-                logger.info("Профили успешно получены из базы данных.")  # Этот лог будет разовым
-
-            # Кэшируем результат для будущих запросов
             await cache_profiles_in_redis(result)
-
-            # Логируем успех кэширования
             logger.info("Профили успешно закешированы в Redis.")
-
             return result
 
         except Exception as e:
             logger.error(f"Ошибка при выборке профилей: {str(e)}")
-            raise Exception("Не удалось получить профили из базы данных.") from e
-
+            raise
 
 
 # Получение кэшированных профилей из Redis
-async def get_cached_profiles():
+async def get_cached_profiles(redis_client: redis.Redis):
     """
     Получение кэшированных профилей из Redis.
+
+    :param redis_client: Экземпляр клиента Redis
     :return: Список профилей или None, если кэш пуст.
     """
     try:
@@ -398,12 +341,10 @@ async def get_cached_profiles():
         return None
     except RedisError as redis_e:
         logger.error(f"Ошибка при работе с Redis: {str(redis_e)}")
-        raise RedisError("Не удалось выполнить операцию с Redis.") from redis_e
-
+        raise HTTPException(status_code=500, detail="Ошибка кэширования данных в Redis")
     except Exception as e:
         logger.error(f"Ошибка при получении кэшированных профилей: {str(e)}")
-        raise Exception("Не удалось получить данные из кэша.") from e
-
+        raise HTTPException(status_code=500, detail="Ошибка при получении данных из кэша")
 
 
 

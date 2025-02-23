@@ -25,7 +25,7 @@ class FormData(BaseModel):
     hashtags: Optional[List[str]] = Field(None, min_items=1, max_items=20, description="Список хэштегов, связанных с пользователем (до 20 шт.)")
     adress: Optional[List[str]] = Field(None, min_items=1, max_items=10, description="Список адресов (макс. 10)")
     city: Optional[str] = Field(None, max_length=55, description="Город пользователя")
-    coordinates: Optional[List[Tuple[float, float]]] = Field(None, min_items=1, max_items=10, description="Координаты пользователя (до 10 пар), каждая пара: [долгота, широта]")
+    coordinates: Optional[List[Tuple[float, float]]] = Field(None, max_items=10, description="Координаты пользователя (до 10 пар), каждая пара: [долгота, широта]")
     is_in_mlm: Optional[int] = Field(0, description="Флаг участия в МЛМ")
     is_incognito: bool = Field(False, description="Флаг инкогнито пользователя")
     wallet_number: str = Field(min_length=1, max_length=100, description="Номер кошелька пользователя")
