@@ -182,9 +182,9 @@ class UserProfileResponse(BaseModel):
     is_in_mlm: Optional[int]
     website_or_social: Optional[str]
     is_admin: Optional[bool]
-    adress: Optional[dict]  # JSONB может быть представлен как dict в Pydantic
+    adress: Optional[List[str]]  # JSONB может быть представлен как dict в Pydantic
     city: Optional[str]
-    coordinates: Optional[str]
+    coordinates: Optional[list[list[float]]]
     followers_count: Optional[int]
 
     class Config:

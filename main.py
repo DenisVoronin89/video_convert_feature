@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 from geoalchemy2.functions import ST_DWithin, ST_MakePoint
 from geoalchemy2.shape import from_shape
+from shapely import wkt
 from shapely.geometry import Point, MultiPoint
 import hashlib
 from typing import Optional, List
@@ -33,7 +34,7 @@ from views import (
     get_all_profiles,
 )
 from schemas import FormData, TokenResponse, UserProfileResponse, UserResponse, is_valid_image, is_valid_video, serialize_form_data, validate_and_process_form
-from models import User, UserProfiles, Favorite, Hashtag, VideoHashtag
+from models import User, UserProfiles, Favorite, Hashtag, ProfileHashtag
 from cashe import (
     increment_subscribers_count,
     decrement_subscribers_count,
@@ -44,7 +45,8 @@ from cashe import (
     sync_data_to_db,
     cache_profiles_in_redis,
     get_profiles_by_hashtag,
-    get_sorted_profiles
+    get_sorted_profiles,
+    get_cached_profiles
 )
 from tokens import TokenData, create_tokens, verify_access_token
 from utils import delete_old_files_task, parse_coordinates
@@ -182,8 +184,52 @@ async def login(wallet_number: str, session: AsyncSession = Depends(get_db_sessi
         profile_stmt = select(UserProfiles).filter(UserProfiles.user_id == user.id)
         profile_result = await session.execute(profile_stmt)
         profile = profile_result.scalar_one_or_none()
-        profile_info = UserProfileResponse.model_validate(profile) if profile else None
-        logger.info(f"Профиль пользователя: {profile_info}")
+
+        # Преобразуем профиль в ответ
+        profile_info = None
+        if profile:
+            # Обработка координат
+            coordinates = None
+            if profile.coordinates:
+                try:
+                    # Преобразуем строку WKT в геометрический объект
+                    geometry = wkt.loads(str(profile.coordinates))
+                    # Получаем список координат (если это Point, то просто вернем его координаты)
+                    coordinates = [list(geometry.coords)[0]] if isinstance(geometry, Point) else [list(coord) for coord in geometry.coords]
+                except Exception as e:
+                    logger.error(f"Ошибка при парсинге координат: {str(e)}")
+
+            profile_info = UserProfileResponse(
+                id=profile.id,
+                created_at=profile.created_at,
+                name=profile.name,
+                user_logo_url=profile.user_logo_url,
+                video_url=profile.video_url,
+                preview_url=profile.preview_url,
+                activity_and_hobbies=profile.activity_and_hobbies,
+                is_moderated=profile.is_moderated,
+                is_incognito=profile.is_incognito,
+                is_in_mlm=profile.is_in_mlm,
+                website_or_social=profile.website_or_social,
+                is_admin=profile.is_admin,
+                adress=profile.adress if isinstance(profile.adress, list) else [],
+                city=profile.city,
+                coordinates=coordinates,  # Отдаем уже преобразованные координаты
+                followers_count=profile.followers_count
+            )
+            logger.info(f"Профиль пользователя: {profile_info}")
+
+        # Получаем хэштеги пользователя, если профиль существует
+        hashtags_info = []
+        if profile:
+            logger.info("Загрузка хэштегов пользователя.")
+            hashtags_stmt = select(Hashtag).join(ProfileHashtag).filter(ProfileHashtag.profile_id == profile.id)
+            hashtags_result = await session.execute(hashtags_stmt)
+            hashtags = hashtags_result.scalars().all()
+            hashtags_info = [hashtag.tag for hashtag in hashtags] if hashtags else []
+            logger.info(f"Хэштеги пользователя: {hashtags_info}")
+        else:
+            logger.info("Профиль пользователя не найден, хэштеги не будут загружены.")
 
         # Получаем избранное из кэша Redis
         logger.info("Попытка получить избранное из кэша Redis.")
@@ -211,6 +257,7 @@ async def login(wallet_number: str, session: AsyncSession = Depends(get_db_sessi
             id=user.id,
             profile=profile_info,
             favorites=favorite_ids,
+            hashtags=hashtags_info,
             tokens=tokens,
         )
 
@@ -559,8 +606,38 @@ async def create_or_update_user_profile(
         session.add(new_profile)
         logger.info(f"Создан профиль для пользователя {user.id}")
 
-    return {"message": "Профиль успешно сохранен"}
+    # Работа с хэштегами
+    if form_data.hashtags:
+        hashtags_list = [tag.strip().lower() for tag in form_data.hashtags if tag.strip()]
+        if hashtags_list:
+            # Поиск и проверка существующих хэштегов
+            existing_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
+            existing_hashtags_result = await session.execute(existing_hashtags_stmt)
+            existing_hashtags = {tag.tag: tag for tag in existing_hashtags_result.scalars().all()}
 
+            for hashtag in hashtags_list:
+                if hashtag not in existing_hashtags:
+                    # Если хэштег отсутствует - добавляем
+                    new_hashtag = Hashtag(tag=hashtag)
+                    session.add(new_hashtag)
+                    await session.flush()  # Дожидаемся генерации ID
+
+                    # Добавление связи между профилем и хэштегом
+                    profile_hashtag = ProfileHashtag(profile_id=profile.id,  # Используй profile для обновления
+                                                     hashtag_id=new_hashtag.id)  # Связь с профилем
+                    session.add(profile_hashtag)
+                else:
+                    # Привязка существующего хэштега к профилю через таблицу ProfileHashtag
+                    profile_hashtag = ProfileHashtag(profile_id=profile.id,  # Используй profile для обновления
+                                                     hashtag_id=existing_hashtags[hashtag].id)  # Связь с профилем
+                    session.add(profile_hashtag)
+
+            logger.info(f"Хэштеги добавлены/обновлены для профиля пользователя {user.id}")
+
+    # Подтверждаем изменения в БД
+    await session.commit()
+
+    return {"message": "Профиль успешно сохранен"}
 
 
 # ЭНДПОИНТЫ ДЛЯ РАБОТЫ С ИЗБРАННЫМ И СЧЕТЧИКАМИ ПОДПИСЧИКОВ
@@ -868,7 +945,7 @@ async def refresh_tokens_endpoint(refresh_token: str):
 
 
 
-
+# ЭНДПОИНТ ДЛЯ НАПОЛНЕНИЯ БД, ПОТОМ УДАЛИТЬ ЕГО И МОДУЛЬ ФЕЙК ПРОФИЛЕЙ!!!!!!!!!!!!!
 @app.post("/fill-database")
 async def fill_database(session: AsyncSession = Depends(get_db_session)):
     try:

@@ -133,10 +133,10 @@ MIME-тип или расширение, но на самом деле явля�
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/a9d07ebf-0a22-4d25-9332-90c6864ac0a6_orig_cat.webp""
+    "image_path": "./image_temp/7f6605f0-4a2c-41a3-b1c6-1b819d79a6ea_orig_cat.webp"
   },
   "video_data": {
-    "video_path": "./video_temp/2e0d212a-e2aa-4b6f-aa23-2286c11c7859_ptichka.mp4"
+    "video_path": "./video_temp/14af2dc0-fef1-4425-bcc8-289c0cbc873d_ptichka.mp4"
   }
 }
 
@@ -169,10 +169,10 @@ MIME-тип или расширение, но на самом деле явля�
     "is_in_mlm": 1,
     "is_incognito": false,
     "name": "John Doe",
-    "wallet_number": "0x27b9B8cfa04fA08f66Ad694F679D86EBC7d7355",
+    "wallet_number": "0x27b9B8cfa04fA08f66Ad674F679D86EBC7d7355",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/a3617ef4-108f-47dc-b861-d866b7ea75fa_orig_cat.webp"
+    "image_path": "./image_temp/4e96fbf8-abfc-4988-a382-30134f611d49_orig_cat.webp"
   }
 }

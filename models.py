@@ -1,5 +1,3 @@
-"""  Модуль для описания таблиц в БД, реализация связей между хэштегами и видео """
-
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import Column, Integer, String, ForeignKey, Index, Boolean, DateTime, func
 from sqlalchemy.orm import relationship
@@ -15,7 +13,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     wallet_number = Column(String(150), unique=True, nullable=False)
-    is_profile_created = Column(Boolean, default=False, nullable=False) # Флаг меняем при создании профиля
+    is_profile_created = Column(Boolean, default=False, nullable=False)  # Флаг меняем при создании профиля
 
     # Индекс для ускорения поиска по кошельку
     __table_args__ = (
@@ -45,13 +43,13 @@ class UserProfiles(Base):
     is_incognito = Column(Boolean, default=False, nullable=False)
     is_in_mlm = Column(Integer, nullable=True, default=0)
     is_admin = Column(Boolean, nullable=True, default=False)
-    adress = Column(JSONB, nullable=True) # Массив до 10 адресов
+    adress = Column(JSONB, nullable=True)  # Массив до 10 адресов
     city = Column(String(55), nullable=True)
-    coordinates = Column(Geometry('MULTIPOINT', srid=4326), nullable=True) # Множественные координаты в формате MULTIPOINT
+    coordinates = Column(Geometry('MULTIPOINT', srid=4326), nullable=True)  # Множественные координаты в формате MULTIPOINT
     followers_count = Column(Integer, default=0, nullable=True)  # Счётчик подписчиков летит из редиски
 
-    # Связь с хэштегами
-    hashtags = relationship('Hashtag', secondary='video_hashtags', back_populates='videos')
+    # Связь с хэштегами через ассоциативную таблицу
+    hashtags = relationship('Hashtag', secondary='profile_hashtags', back_populates='profiles')
 
     # Связь с таблицей пользователей
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
@@ -85,20 +83,20 @@ class Hashtag(Base):
     id = Column(Integer, primary_key=True)
     tag = Column(String(255), unique=True, nullable=False)
 
-    # Связь с видео через ассоциативную таблицу
-    videos = relationship('UserProfiles', secondary='video_hashtags', back_populates='hashtags')
+    # Связь с профилями через ассоциативную таблицу
+    profiles = relationship('UserProfiles', secondary='profile_hashtags', back_populates='hashtags')
 
 
-# Ассоциативная таблица для связи хэштегов с видео URL
-class VideoHashtag(Base):
-    __tablename__ = 'video_hashtags'
+# Ассоциативная таблица для связи хэштегов с профилями
+class ProfileHashtag(Base):
+    __tablename__ = 'profile_hashtags'
 
-    # Составной первичный ключ: связь между видео и хэштегами
-    video_url = Column(String(255), ForeignKey('user_profiles.video_url', ondelete='CASCADE'), primary_key=True)
+    # Составной первичный ключ: связь между профилем и хэштегами
+    profile_id = Column(Integer, ForeignKey('user_profiles.id', ondelete='CASCADE'), primary_key=True)
     hashtag_id = Column(Integer, ForeignKey('hashtags.id', ondelete='CASCADE'), primary_key=True)
 
     # Индексы
     __table_args__ = (
-        Index('ix_video_hashtags_video_url', 'video_url'),
-        Index('ix_video_hashtags_hashtag_id', 'hashtag_id'),
+        Index('ix_profile_hashtags_profile_id', 'profile_id'),
+        Index('ix_profile_hashtags_hashtag_id', 'hashtag_id'),
     )

@@ -74,13 +74,13 @@ async def generate_user_profile(session: AsyncSession, full_profile=True):
         # Привязываем хэштеги к профилю через ассоциативную таблицу
         for hashtag in hashtags:
             if profile.video_url:  # Проверяем, что video_url не None
-                video_hashtag = VideoHashtag(
-                    video_url=profile.video_url,  # Привязка через URL видео
-                    hashtag_id=hashtag.id
+                profile_hashtag = ProfileHashtag(
+                    profile_id=profile.id,  # Связь через ID профиля
+                    hashtag_id=hashtag.id  # Связь через ID хэштега
                 )
-                session.add(video_hashtag)
+                session.add(profile_hashtag)
 
-        await session.commit()  # Асинхронная коммитация для привязки хэштегов
+        await session.commit()  # Асинхронная коммитация для привязки хэштегов к профилю
 
 # Генерация избранных профилей для 50 пользователей
 async def generate_favorites(session: AsyncSession):

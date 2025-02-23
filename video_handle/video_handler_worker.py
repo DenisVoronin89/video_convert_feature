@@ -16,7 +16,7 @@ from geoalchemy2 import Geometry
 from geoalchemy2.shape import to_shape
 from shapely.geometry import Point, MultiPoint
 
-from models import UserProfiles, Hashtag, VideoHashtag, User, Favorite
+from models import UserProfiles, Hashtag, ProfileHashtag, User
 from schemas import FormData
 from utils import get_file_size
 
@@ -262,17 +262,17 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
 
                 # Обновляем данные профиля
                 profile.name = form_data["name"]
-                profile.website_or_social = form_data.website_or_social if form_data.website_or_social is not None else None
-                profile.activity_and_hobbies = form_data["activity_hobbies"] if form_data.activity_hobbies is not None else None
+                profile.website_or_social = form_data["website_or_social"] if form_data["website_or_social"] is not None else None
+                profile.activity_and_hobbies = form_data["activity_hobbies"] if form_data["activity_hobbies"] is not None else None
                 profile.video_url = video_url
                 profile.preview_url = preview_url
                 profile.user_logo_url = user_logo_url
-                profile.adress = form_data["adress"] if form_data.adress is not None else None
-                profile.city = form_data["city"] if form_data.city is not None else None
-                profile.coordinates = multi_point_wkt if form_data.coordinates is not None else None
+                profile.adress = form_data["adress"] if form_data["adress"] is not None else None
+                profile.city = form_data["city"] if form_data["city"] is not None else None
+                profile.coordinates = multi_point_wkt if form_data["coordinates"] is not None else None
                 profile.is_incognito = False
                 profile.is_moderated = False
-                profile.is_in_mlm = form_data["is_in_mlm"] if form_data.is_in_mlm is not None else None
+                profile.is_in_mlm = form_data["is_in_mlm"] if form_data["is_in_mlm"] is not None else None
 
                 # Возвращаем старое значение is_admin
                 profile.is_admin = current_is_admin
@@ -282,28 +282,32 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
 
                 logger.info(f"Обновлены данные профиля для кошелька {wallet_number}")
 
-            # Работа с хэштегами
-            hashtags_list = [tag.strip().lower() for tag in form_data["hashtags"] if tag.strip()]
-            if hashtags_list:
-                # Поиск и проверка существующих хэштегов
-                existing_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
-                existing_hashtags_result = await session.execute(existing_hashtags_stmt)
-                existing_hashtags = {tag.tag: tag for tag in existing_hashtags_result.scalars().all()}
+                # Работа с хэштегами
+                hashtags_list = [tag.strip().lower() for tag in form_data["hashtags"] if tag.strip()]
+                if hashtags_list:
 
-                for hashtag in hashtags_list:
-                    if hashtag not in existing_hashtags:
-                        # Если хэштег отсутствует - добавляем
-                        new_hashtag = Hashtag(tag=hashtag)
-                        session.add(new_hashtag)
-                        await session.flush()  # Дожидаемся генерации ID
+                    # Поиск и проверка существующих хэштегов
+                    existing_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
+                    existing_hashtags_result = await session.execute(existing_hashtags_stmt)
+                    existing_hashtags = {tag.tag: tag for tag in existing_hashtags_result.scalars().all()}
 
-                        # Добавление связи в таблицу VideoHashtag
-                        video_hashtag = VideoHashtag(video_url=video_url, hashtag_id=new_hashtag.id)  # Связь с video_url
-                        session.add(video_hashtag)
-                    else:
-                        # Привязка существующего хэштега к видео через таблицу VideoHashtag
-                        video_hashtag = VideoHashtag(video_url=video_url, hashtag_id=existing_hashtags[hashtag].id)  # Привязка через video_url
-                        session.add(video_hashtag)
+                    for hashtag in hashtags_list:
+                        if hashtag not in existing_hashtags:
+                            # Если хэштег отсутствует - добавляем
+                            new_hashtag = Hashtag(tag=hashtag)
+                            session.add(new_hashtag)
+                            await session.flush()  # Дожидаемся генерации ID
+
+                            # Добавление связи между профилем и хэштегом
+                            profile_hashtag = ProfileHashtag(profile_id=profile.id,  # Используй profile для обновления
+                                                             hashtag_id=new_hashtag.id)  # Связь с профилем
+                            session.add(profile_hashtag)
+                        else:
+                            # Привязка существующего хэштега к профилю через таблицу ProfileHashtag
+                            profile_hashtag = ProfileHashtag(profile_id=profile.id,  # Используй profile для обновления
+                                                             hashtag_id=existing_hashtags[
+                                                                 hashtag].id)  # Связь с профилем
+                            session.add(profile_hashtag)
 
         # Сохранение изменений в БД
         await session.commit()
