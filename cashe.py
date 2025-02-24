@@ -245,61 +245,56 @@ async def get_sorted_profiles():
     После выборки профили кешируются в Redis для быстрого доступа.
     """
     global startup_logged
-    try:
-        if not startup_logged:
-            logger.info("Запуск выборки профилей из базы данных.")
-            startup_logged = True
+    if not startup_logged:
+        logger.info("Запуск выборки профилей из базы данных.")
+        startup_logged = True
 
+    try:
         async with get_db_session_for_worker() as session:
-            # Базовый запрос с загрузкой хэштегов через промежуточную таблицу
+            # Базовый запрос с загрузкой связанных данных
             base_query = (
                 select(UserProfiles)
                 .options(
                     joinedload(UserProfiles.user),
-                    subqueryload(UserProfiles.profile_hashtags).subqueryload(ProfileHashtag.hashtag)  # Загружаем хештеги через subqueryload
+                    subqueryload(UserProfiles.profile_hashtags).subqueryload(ProfileHashtag.hashtag)
                 )
                 .filter(UserProfiles.is_incognito == False)
             )
 
-            # 1. Популярные профили: 10 профилей с наибольшим количеством подписчиков
+            # Выборки профилей по критериям
             popular_profiles = (await session.execute(
                 base_query.order_by(UserProfiles.followers_count.desc()).limit(10)
             )).scalars().unique().all()
 
-            # 2. Новые профили: 10 последних созданных профилей
             new_profiles = (await session.execute(
                 base_query.order_by(UserProfiles.created_at.desc()).limit(10)
             )).scalars().unique().all()
 
-            # 3. MLM-профили: 10 профилей с указанием участия в MLM
             mlm_profiles = (await session.execute(
                 base_query.filter(UserProfiles.is_in_mlm.isnot(None), UserProfiles.is_in_mlm != 0).limit(10)
             )).scalars().unique().all()
 
-            # 4. Случайные профили: 10 случайных профилей
             random_profiles = (await session.execute(
                 base_query.order_by(func.random()).limit(10)
             )).scalars().unique().all()
 
-            # 5. Профили без видео: 10 профилей без видео
             no_video_profiles = (await session.execute(
                 base_query.filter(UserProfiles.video_url == None).limit(10)
             )).scalars().unique().all()
 
-            # Объединяем все профили
+            # Объединяем профили в единый список
             profiles = popular_profiles + new_profiles + mlm_profiles + random_profiles + no_video_profiles
             logger.info(f"Выбрано {len(profiles)} профилей.")
 
             result = []
-            hashtags = []  # Список для хранения всех хэштегов для логирования
-            for profile in profiles:
-                # Собираем хэштеги для каждого профиля
-                if profile.profile_hashtags:
-                    for ph in profile.profile_hashtags:
-                        if ph.hashtag:
-                            hashtags.append(ph.hashtag.tag)
 
-                # Логируем и парсим координаты
+            for profile in profiles:
+                # Собираем хэштеги только для текущего профиля
+                profile_hashtags = [
+                    ph.hashtag.tag for ph in profile.profile_hashtags if ph.hashtag
+                ]
+
+                # Обработка координат профиля
                 coordinates = None
                 if profile.coordinates:
                     try:
@@ -312,7 +307,7 @@ async def get_sorted_profiles():
                     except Exception as e:
                         logger.error(f"Ошибка при обработке координат профиля {profile.id}: {str(e)}")
 
-                # Собираем профиль
+                # Формирование структуры профиля
                 profile_data = {
                     "id": profile.id,
                     "created_at": await datetime_to_str(profile.created_at),
@@ -332,15 +327,11 @@ async def get_sorted_profiles():
                         "id": profile.user.id,
                         "wallet_number": profile.user.wallet_number,
                     },
-                    "hashtags": [ph for ph in hashtags],  # Возвращаем все собранные хэштеги
+                    "hashtags": profile_hashtags,  # Только хэштеги текущего профиля
                 }
 
-                # Логируем профиль
                 logger.info(f"Профиль {profile.id}: {profile_data}")
                 result.append(profile_data)
-
-            # Логируем, что хэштеги успешно получены
-            logger.info(f"Хэштеги успешно получены для {len(hashtags)} хэштегов.")
 
             await cache_profiles_in_redis(result)
             logger.info("Профили успешно закешированы в Redis.")
@@ -349,7 +340,6 @@ async def get_sorted_profiles():
     except Exception as e:
         logger.error(f"Ошибка при выборке профилей: {str(e)}")
         raise
-
 
 
 
