@@ -245,7 +245,8 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                     is_moderated=False,
                     is_admin=False,
                     is_in_mlm=form_data["is_in_mlm"],
-                    user_id=user.id
+                    user_id=user.id,
+                    language=form_data["language"]
                 )
 
                 # Обновляем флаг is_profile_created в таблице User на True
@@ -275,6 +276,7 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                 profile.is_incognito = False
                 profile.is_moderated = False
                 profile.is_in_mlm = form_data["is_in_mlm"] if form_data["is_in_mlm"] is not None else None
+                profile.language = form_data["language"] if form_data["language"] is not None else None
 
                 # Возвращаем старое значение is_admin
                 profile.is_admin = current_is_admin

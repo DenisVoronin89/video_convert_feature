@@ -13,17 +13,13 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     wallet_number = Column(String(150), unique=True, nullable=False)
-    is_profile_created = Column(Boolean, default=False, nullable=False)  # Флаг меняем при создании профиля
+    is_profile_created = Column(Boolean, default=False, nullable=False)
 
-    # Индекс для ускорения поиска по кошельку
     __table_args__ = (
         Index('ix_user_wallet_number', 'wallet_number'),
     )
 
-    # Связь с профилем
     profile = relationship('UserProfiles', back_populates='user', uselist=False)
-
-    # Связь с избранным
     favorites = relationship('Favorite', back_populates='user', cascade="all, delete-orphan")
 
 
@@ -33,7 +29,7 @@ class UserProfiles(Base):
 
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    name = Column(String(100), unique=False, nullable=False)
+    name = Column(String(100), nullable=False)
     website_or_social = Column(String(255), nullable=True)
     user_logo_url = Column(String(255), nullable=False, unique=True)
     video_url = Column(String(255), nullable=True, unique=True)
@@ -45,19 +41,16 @@ class UserProfiles(Base):
     is_admin = Column(Boolean, nullable=True, default=False)
     adress = Column(JSONB, nullable=True)  # Массив до 10 адресов
     city = Column(String(55), nullable=True)
-    coordinates = Column(Geometry('MULTIPOINT', srid=4326), nullable=True)  # Множественные координаты в формате MULTIPOINT
-    followers_count = Column(Integer, default=0, nullable=True)  # Счётчик подписчиков летит из редиски
+    coordinates = Column(Geometry('MULTIPOINT', srid=4326), nullable=True)
+    followers_count = Column(Integer, default=0, nullable=True)
+    language = Column(String(55), nullable=True)
 
-    # Связь с хэштегами через ассоциативную таблицу
     hashtags = relationship('Hashtag', secondary='profile_hashtags', back_populates='profiles')
+    profile_hashtags = relationship('ProfileHashtag', back_populates='profile', cascade="all, delete-orphan")
 
-    # Связь с таблицей пользователей
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-
-    # Обратная связь
     user = relationship('User', back_populates='profile')
 
-    # Связь с избранным юзеров
     favorited_by = relationship('Favorite', back_populates='profile', cascade="all, delete-orphan")
 
 
@@ -69,10 +62,7 @@ class Favorite(Base):
     profile_id = Column(Integer, ForeignKey('user_profiles.id', ondelete='CASCADE'), primary_key=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    # Связь с пользователем
     user = relationship('User', back_populates='favorites')
-
-    # Связь с профилем
     profile = relationship('UserProfiles', back_populates='favorited_by')
 
 
@@ -83,19 +73,20 @@ class Hashtag(Base):
     id = Column(Integer, primary_key=True)
     tag = Column(String(255), unique=True, nullable=False)
 
-    # Связь с профилями через ассоциативную таблицу
     profiles = relationship('UserProfiles', secondary='profile_hashtags', back_populates='hashtags')
+    profile_hashtags = relationship('ProfileHashtag', back_populates='hashtag', cascade="all, delete-orphan")
 
 
 # Ассоциативная таблица для связи хэштегов с профилями
 class ProfileHashtag(Base):
     __tablename__ = 'profile_hashtags'
 
-    # Составной первичный ключ: связь между профилем и хэштегами
     profile_id = Column(Integer, ForeignKey('user_profiles.id', ondelete='CASCADE'), primary_key=True)
     hashtag_id = Column(Integer, ForeignKey('hashtags.id', ondelete='CASCADE'), primary_key=True)
 
-    # Индексы
+    profile = relationship('UserProfiles', back_populates='profile_hashtags')
+    hashtag = relationship('Hashtag', back_populates='profile_hashtags')
+
     __table_args__ = (
         Index('ix_profile_hashtags_profile_id', 'profile_id'),
         Index('ix_profile_hashtags_hashtag_id', 'hashtag_id'),

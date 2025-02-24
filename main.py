@@ -1,5 +1,6 @@
 import os
 import asyncio
+import json
 from pydantic import HttpUrl
 from fastapi import FastAPI, UploadFile, HTTPException, File, Depends, Query, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -7,6 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import redis.asyncio as redis
+from redis.exceptions import RedisError
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
@@ -89,16 +91,16 @@ async def start_scheduler():
 
     # Задача, которая выполняется каждые 3 минуты (слив каунтера звездочек и избранного из Редиски в БД)
     # Вместо использования asyncio.run() вызываем саму асинхронную функцию
-    scheduler.add_job(sync_data_to_db, IntervalTrigger(minutes=3))
-    logger.info("Задача sync_data_to_db добавлена в расписание (каждые 3 минуты).")
+    # scheduler.add_job(sync_data_to_db, IntervalTrigger(minutes=3))
+    # logger.info("Задача sync_data_to_db добавлена в расписание (каждые 3 минуты).")
 
     # Задача, которая выполняется каждую минуту (получаем в Редиску 50 профилей на отгрузку при входе в приложение)
     scheduler.add_job(get_sorted_profiles, IntervalTrigger(minutes=1))
     logger.info("Задача get_sorted_profiles добавлена в расписание (каждую минуту).")
 
     # Задача очистки временных файлов, выполняемая ежедневно в 00:00
-    scheduler.add_job(delete_old_files_task, CronTrigger(hour=0, minute=0, second=0))
-    logger.info("Задача delete_old_files_task добавлена в расписание (ежедневно в 00:00).")
+    # scheduler.add_job(delete_old_files_task, CronTrigger(hour=0, minute=0, second=0))
+    # logger.info("Задача delete_old_files_task добавлена в расписание (ежедневно в 00:00).")
 
     # Старт планировщика
     scheduler.start()
@@ -242,7 +244,8 @@ async def login(wallet_number: str, session: AsyncSession = Depends(get_db_sessi
                 adress=profile.adress if isinstance(profile.adress, list) else [],
                 city=profile.city,
                 coordinates=coordinates,  # Отдаем уже преобразованные координаты
-                followers_count=profile.followers_count
+                followers_count=profile.followers_count,
+                language=profile.language
             )
             logger.info(f"Профиль пользователя: {profile_info}")
 
@@ -250,7 +253,12 @@ async def login(wallet_number: str, session: AsyncSession = Depends(get_db_sessi
         hashtags_info = []
         if profile:
             logger.info("Загрузка хэштегов пользователя.")
-            hashtags_stmt = select(Hashtag).join(ProfileHashtag).filter(ProfileHashtag.profile_id == profile.id)
+            hashtags_stmt = (
+                select(Hashtag)
+                .join(ProfileHashtag, ProfileHashtag.hashtag_id == Hashtag.id)
+                .join(UserProfiles, UserProfiles.id == ProfileHashtag.profile_id)
+                .filter(UserProfiles.id == profile.id)
+            )
             hashtags_result = await session.execute(hashtags_stmt)
             hashtags = hashtags_result.scalars().all()
             hashtags_info = [hashtag.tag for hashtag in hashtags] if hashtags else []
@@ -610,6 +618,7 @@ async def create_or_update_user_profile(
         profile.coordinates = multi_point_wkt if form_data.coordinates is not None else None
         profile.is_in_mlm = form_data.is_in_mlm if form_data.is_in_mlm is not None else None
         profile.is_incognito = form_data.is_incognito
+        profile.language = form_data.language if form_data.language is not None else None
 
         session.add(profile)
         logger.info(f"Обновлен профиль пользователя {user.id}")
@@ -626,7 +635,8 @@ async def create_or_update_user_profile(
             is_incognito=form_data.is_incognito,
             is_moderated=False,
             is_admin=False,
-            user_id=user.id
+            user_id=user.id,
+            language=form_data.language
         )
 
         user.is_profile_created = True
@@ -763,7 +773,7 @@ async def get_favorites(user_id: int, redis_client: redis.Redis = Depends(get_re
 # Эндпоинт для получения первых 50 профилей
 @app.get("/profiles/main")
 async def get_profiles(
-    session: AsyncSession = Depends(get_db_session),
+    # session: AsyncSession = Depends(get_db_session),
     redis_client: redis.Redis = Depends(get_redis_client),
     _: TokenData = Depends(check_user_token)
 ):
@@ -779,7 +789,7 @@ async def get_profiles(
             return JSONResponse(content=cached_profiles)
 
         # Если кэш пуст, получаем профили из базы данных
-        profiles_from_db = await get_sorted_profiles(session)
+        profiles_from_db = await get_sorted_profiles()
         logger.info("Профили успешно загружены из базы данных.")
 
         # Сохраняем полученные профили в Redis

@@ -29,6 +29,7 @@ class FormData(BaseModel):
     is_in_mlm: Optional[int] = Field(0, description="Флаг участия в МЛМ")
     is_incognito: bool = Field(False, description="Флаг инкогнито пользователя")
     wallet_number: str = Field(min_length=1, max_length=100, description="Номер кошелька пользователя")
+    language:Optional[str] = Field(None, max_length=55, description="Язык пользователя или регион")
 
 
     class Config:
@@ -49,7 +50,8 @@ class FormData(BaseModel):
                 ],
                 "is_in_mlm": 1,
                 "is_incognito": False,
-                "wallet_number": "0x123abc456def"
+                "wallet_number": "0x123abc456def",
+                "language": "English"
             }
         }
 
@@ -186,6 +188,7 @@ class UserProfileResponse(BaseModel):
     city: Optional[str]
     coordinates: Optional[list[list[float]]]
     followers_count: Optional[int]
+    language: Optional[str]
 
     class Config:
         from_attributes = True  # Указывает Pydantic, что это модель SQLAlchemy

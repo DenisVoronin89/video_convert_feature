@@ -1,29 +1,30 @@
 import random
 from faker import Faker
-from database import get_db_session  # Берём сессию из твоего модуля
-from models import *
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import joinedload
+from geoalchemy2 import Geometry
+from geoalchemy2.elements import WKTElement
+from shapely.geometry import Point, MultiPoint
+from models import *  # Модели из твоего файла
+from database import get_db_session  # Асинхронная сессия из твоего модуля
 import asyncio
 
-# Инициализация Faker
 fake = Faker()
 
-# Фиксированные хэштеги
 FIXED_HASHTAGS = [
     "спорт", "автомобили", "искусство", "технологии", "программирование",
     "маркетинг", "девушки", "природа", "кулинария", "недвижимость"
 ]
 
-# Генерация фейковых данных для пользователя и профиля с хештегами и избранным
-async def generate_user_profile(session: AsyncSession, full_profile=True):
+async def generate_user_profile(session: AsyncSession, full_profile=True, with_coordinates=False):
     # Генерация нового пользователя
     user = User(
-        wallet_number=fake.unique.uuid4(),  # Генерация уникального кошелька
+        wallet_number=fake.unique.uuid4(),
         is_profile_created=True
     )
     session.add(user)
-    await session.commit()  # Асинхронная коммитация для добавления пользователя в БД
+    await session.commit()
 
     # Генерация профиля пользователя с случайными данными
     profile_data = {
@@ -39,9 +40,18 @@ async def generate_user_profile(session: AsyncSession, full_profile=True):
         "is_admin": random.choice([True, False]),
         "adress": [{"street": fake.street_address(), "city": fake.city()}] if full_profile and random.choice([True, False]) else None,
         "city": fake.city() if full_profile and random.choice([True, False]) else None,
-        "coordinates": None,  # Для простоты оставим это поле пустым
-        "followers_count": random.randint(0, 10000)
+        "coordinates": None,
+        "followers_count": random.randint(0, 10000),
+        "language": fake.language_code() if full_profile and random.choice([True, False]) else None
     }
+
+    # Если нужно, добавляем координаты
+    if with_coordinates:
+        num_points = random.randint(2, 5)
+        coordinates = [(random.uniform(-180, 180), random.uniform(-90, 90)) for _ in range(num_points)]
+        points = [Point(coord[1], coord[0]) for coord in coordinates]
+        multi_point = MultiPoint(points)
+        profile_data["coordinates"] = str(multi_point)
 
     # Создаем профиль пользователя
     profile = UserProfiles(
@@ -49,73 +59,71 @@ async def generate_user_profile(session: AsyncSession, full_profile=True):
         **profile_data
     )
     session.add(profile)
-    await session.commit()  # Асинхронная коммитация для добавления профиля
+    await session.commit()
 
-    # Генерация случайных хэштегов
+    # Генерация хештегов
     hashtags = []
-    if random.choice([True, False]):  # Для случайных профилей добавляем хештеги
-        # Выбираем случайное количество хэштегов (от 1 до 5)
+    if random.choice([True, False]):
         selected_hashtags = random.sample(FIXED_HASHTAGS, k=random.randint(1, 5))
-
         for tag in selected_hashtags:
-            # Проверяем, существует ли хэштег с таким значением
-            result = await session.execute(select(Hashtag).where(Hashtag.tag == tag))
-            existing_hashtag = result.scalars().first()
+            result = await session.execute(
+                select(Hashtag).options(joinedload(Hashtag.profiles)).where(Hashtag.tag == tag))
+            existing_hashtag = result.unique().scalars().first()
 
             if existing_hashtag:
-                hashtag = existing_hashtag  # Используем существующий хэштег
+                hashtag = existing_hashtag
             else:
-                hashtag = Hashtag(tag=tag)  # Создаем новый хэштег
+                hashtag = Hashtag(tag=tag)
                 session.add(hashtag)
-                await session.commit()  # Сохраняем новый хэштег в базу данных
 
             hashtags.append(hashtag)
 
+        await session.commit()
+
         # Привязываем хэштеги к профилю через ассоциативную таблицу
         for hashtag in hashtags:
-            if profile.video_url:  # Проверяем, что video_url не None
-                profile_hashtag = ProfileHashtag(
-                    profile_id=profile.id,  # Связь через ID профиля
-                    hashtag_id=hashtag.id  # Связь через ID хэштега
-                )
-                session.add(profile_hashtag)
+            profile_hashtag = ProfileHashtag(
+                profile_id=profile.id,
+                hashtag_id=hashtag.id
+            )
+            session.add(profile_hashtag)
 
-        await session.commit()  # Асинхронная коммитация для привязки хэштегов к профилю
+        await session.commit()
 
-# Генерация избранных профилей для 50 пользователей
+# Генерация избранных профилей для пользователей
 async def generate_favorites(session: AsyncSession):
-    # Получаем всех пользователей
-    result = await session.execute(select(User))
-    users = result.scalars().all()
-
-    # Получаем все профили
     result = await session.execute(select(UserProfiles))
-    profiles = result.scalars().all()
+    all_profiles = result.scalars().all()
 
-    # Сохраняем избранные профили для 50 пользователей
-    for _ in range(50):
-        user = random.choice(users)  # Случайный пользователь
-        profile = random.choice(profiles)  # Случайный профиль, который этот пользователь добавит в избранное
+    for profile in all_profiles:
+        num_favorites = random.randint(1, 5)
+        favorites = random.sample([p for p in all_profiles if p.id != profile.id], num_favorites)
 
-        favorite = Favorite(user_id=user.id, profile_id=profile.id)
-        session.add(favorite)
+        for favorite in favorites:
+            profile_favorite = Favorite(
+                user_id=profile.user_id,
+                profile_id=favorite.id
+            )
+            session.add(profile_favorite)
 
-    await session.commit()  # Асинхронная коммитация для добавления в избранное
+        await session.commit()
 
-# Генерация 100 пользователей (50 полных профилей и 50 частичных)
+# Генерация пользователей и профилей
 async def generate_profiles():
-    async for session in get_db_session():  # Изменение на асинхронный контекст для сессии
+    async for session in get_db_session():
         for _ in range(50):  # 50 профилей с полными данными
-            await generate_user_profile(session, full_profile=True)
+            await generate_user_profile(session, full_profile=True, with_coordinates=False)
 
         for _ in range(50):  # 50 профилей с неполными данными
-            await generate_user_profile(session, full_profile=False)
+            await generate_user_profile(session, full_profile=False, with_coordinates=False)
 
-        await generate_favorites(session)  # Генерация избранных профилей
+        for _ in range(50):  # 50 профилей с координатами
+            await generate_user_profile(session, full_profile=True, with_coordinates=True)
+
+        await generate_favorites(session)
 
 async def main():
     await generate_profiles()
 
-# Для запуска асинхронной функции
 if __name__ == "__main__":
     asyncio.run(main())

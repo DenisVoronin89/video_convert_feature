@@ -2,6 +2,7 @@
 
 import os
 import time
+from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from shapely.geometry import Point, MultiPoint
@@ -85,7 +86,6 @@ async def delete_old_files_task():
         logger.error(f"Ошибка при удалении старых файлов: {e}")
 
 
-
 async def parse_coordinates(coordinates):
     """Функция для парсинга координат в WKT строку"""
     if coordinates:
@@ -96,3 +96,10 @@ async def parse_coordinates(coordinates):
         # Преобразуем MultiPoint в строку WKT
         return str(multi_point)
     return None
+
+
+# Асинхронная функция для преобразования datetime в строку
+async def datetime_to_str(value):
+    if isinstance(value, datetime):
+        return value.isoformat()  # Преобразуем в строку ISO 8601
+    return value
