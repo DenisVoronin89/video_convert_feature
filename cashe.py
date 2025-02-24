@@ -231,7 +231,7 @@ async def cache_profiles_in_redis(profiles):
         raise Exception("Не удалось закэшировать профили.") from e
 
 
-# Получение 50 профилей на первоначальную отдачу клиенту
+# Получение 50 профилей на первоначальную отдачу клиенту (ЛОГИ ЗАКОМЕНТИЛ БЕСЯТ)
 async def get_sorted_profiles():
     """
     Получение 50 профилей на первоначальную отдачу клиенту.
@@ -303,7 +303,7 @@ async def get_sorted_profiles():
                             coordinates = [geometry.x, geometry.y]
                         elif isinstance(geometry, MultiPoint):
                             coordinates = [[point.x, point.y] for point in geometry.geoms]
-                        logger.info(f"Координаты профиля {profile.id}: {coordinates}")
+                        # logger.info(f"Координаты профиля {profile.id}: {coordinates}")
                     except Exception as e:
                         logger.error(f"Ошибка при обработке координат профиля {profile.id}: {str(e)}")
 
@@ -330,7 +330,7 @@ async def get_sorted_profiles():
                     "hashtags": profile_hashtags,  # Только хэштеги текущего профиля
                 }
 
-                logger.info(f"Профиль {profile.id}: {profile_data}")
+                # logger.info(f"Профиль {profile.id}: {profile_data}")
                 result.append(profile_data)
 
             await cache_profiles_in_redis(result)

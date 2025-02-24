@@ -6,6 +6,8 @@ from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from shapely.geometry import Point, MultiPoint
+from typing import Optional, List, Union
+from geoalchemy2.shape import to_shape
 
 from logging_config import get_logger
 
@@ -87,7 +89,7 @@ async def delete_old_files_task():
 
 
 async def parse_coordinates(coordinates):
-    """Функция для парсинга координат в WKT строку"""
+    """Функция для парсинга координат в WKT строку (Для сохранения в БД)"""
     if coordinates:
         # Преобразуем каждую пару координат (долгота, широта) в объект Point
         points = [Point(coord[1], coord[0]) for coord in coordinates]  # Долгота, Широта
@@ -103,3 +105,28 @@ async def datetime_to_str(value):
     if isinstance(value, datetime):
         return value.isoformat()  # Преобразуем в строку ISO 8601
     return value
+
+
+def process_coordinates_for_response(coordinates) -> Optional[Union[List[float], List[List[float]]]]:
+    """
+    Обрабатывает координаты профиля.
+
+    :param coordinates: Координаты из базы данных (WKT или геометрический объект).
+    :return: Список координат в формате [долгота, широта] или список списков для MultiPoint.
+             Возвращает None, если координаты отсутствуют или произошла ошибка.
+    """
+    if not coordinates:
+        return None
+
+    try:
+        geometry = to_shape(coordinates)
+        if isinstance(geometry, Point):
+            return [geometry.x, geometry.y]  # [долгота, широта]
+        elif isinstance(geometry, MultiPoint):
+            return [[point.x, point.y] for point in geometry.geoms]  # Список списков
+        else:
+            logger.warning(f"Неизвестный тип геометрии: {type(geometry)}")
+            return None
+    except Exception as e:
+        logger.error(f"Ошибка при обработке координат: {str(e)}")
+        return None

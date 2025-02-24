@@ -810,23 +810,32 @@ async def get_profiles(
 
 
 # Эндпоинт для получения всех профилей
-@app.get("/profiles/all/", response_model=dict)
+@app.get("/profiles/all/")
 async def get_all_profiles_to_client(
-    page: int = 1,  # Страница (по умолчанию 1)
-    sort_by: Optional[str] = Query(None, enum=["newest", "popularity"]),
-    per_page: int = Query(25, le=100),  # По умолчанию 25 профилей, максимум 100
-    db: AsyncSession = Depends(get_db_session),
+    page: int = Query(1, description="Номер страницы (начинается с 1).", ge=1),  # Страница (по умолчанию 1)
+    sort_by: Optional[str] = Query(None, description="Параметр сортировки. Возможные значения: newest, popularity.", enum=["newest", "popularity"]),
+    per_page: int = Query(25, description="Количество профилей на странице.", le=100),  # По умолчанию 25 профилей, максимум 100
     _: TokenData = Depends(check_user_token)
 ):
+    """
+    Получает все профили пользователей с пагинацией и сортировкой.
+
+    :param page: Номер страницы (начинается с 1).
+    :param sort_by: Параметр сортировки (опционально). Возможные значения: "newest", "popularity".
+    :param per_page: Количество профилей на странице (максимум 100).
+    :return: Словарь с данными о профилях, включая пагинацию и общее количество.
+    """
     try:
         # Обращаемся к функции для получения профилей
-        profiles_data = await get_all_profiles(page, sort_by, per_page, db)
+        profiles_data = await get_all_profiles(page, sort_by, per_page)
 
         # Возвращаем данные
         return profiles_data
+    except HTTPException:
+        raise  # Пробрасываем HTTP-исключения без изменений
     except Exception as e:
-        # Если произошла ошибка, возвращаем 500 ошибку
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Ошибка в эндпоинте /profiles/all/: {str(e)}")
+        raise HTTPException(status_code=500, detail="Ошибка при получении профилей")
 
 
 # Эндпоинт для получения профилей по городу
@@ -858,6 +867,7 @@ async def fetch_profiles_by_hashtag(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при получении данных: {e}")
+
 
 
 # Эндпоинт получения пользователя по номеру кошелька

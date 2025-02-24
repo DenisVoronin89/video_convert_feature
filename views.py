@@ -3,13 +3,18 @@ import shutil
 import aiofiles
 from uuid import uuid4
 from fastapi import UploadFile, HTTPException
-from typing import Optional
-from utils import get_file_size
+from geoalchemy2.shape import to_shape
+from shapely.geometry import Point, MultiPoint
+from typing import Optional, List, Union
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import joinedload, subqueryload, selectinload
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import desc
-from models import UserProfiles
+from sqlalchemy import desc, func
 
+from models import UserProfiles, Hashtag, ProfileHashtag
+from database import get_db_session_for_worker
+from utils import process_coordinates_for_response, datetime_to_str, get_file_size
 
 from logging_config import get_logger
 
@@ -147,56 +152,100 @@ async def move_image_to_user_logo(image_path: str, created_dirs: dict) -> str:
         raise HTTPException(status_code=500, detail="Не удалось переместить изображение в директорию user_logo")
 
 
-# Получение всех профилей без фильтров с возможностью сортировки по новизне и популярности
+# Получение всех профилей без фильтров (не по алгоритму 10-10-10-10-10) с возможностью сортировки по новизне и популярности
 async def get_all_profiles(
     page: int,
     sort_by: Optional[str],
-    per_page: int,
-    db: AsyncSession
-):
-    """ Логика для получения всех профилей пользователей с пагинацией и сортировкой """
+    per_page: int
+) -> dict:
+    """
+    Получает все профили пользователей с пагинацией и сортировкой.
+
+    :param page: Номер страницы (начинается с 1).
+    :param sort_by: Параметр сортировки (опционально). Возможные значения: "newest", "popularity".
+    :param per_page: Количество профилей на странице.
+    :return: Словарь с данными о профилях, включая пагинацию и общее количество.
+    :raises HTTPException: Если произошла ошибка при выполнении запроса.
+    """
     try:
-        # Базовый запрос: исключаем приватные профили
-        query = select(UserProfiles).filter(UserProfiles.is_incognito == False)
+        async with get_db_session_for_worker() as session:  # Управление сессией внутри функции
+            # Базовый запрос: исключаем приватные профили
+            query = select(UserProfiles).filter(UserProfiles.is_incognito == False)
 
-        logger.info(f"Запрос всех профилей, страница: {page}, сортировка: {sort_by}, профилей на странице: {per_page}")
+            logger.info(f"Запрос всех профилей, страница: {page}, сортировка: {sort_by}, профилей на странице: {per_page}")
 
-        # Применяем сортировку
-        if sort_by == "newest":
-            query = query.order_by(desc(UserProfiles.created_at))  # Сортировка по дате создания
-        elif sort_by == "popularity":
-            query = query.order_by(desc(UserProfiles.followers_count))  # Сортировка по количеству подписчиков
+            # Применяем сортировку
+            if sort_by == "newest":
+                query = query.order_by(desc(UserProfiles.created_at))  # Сортировка по дате создания
+            elif sort_by == "popularity":
+                query = query.order_by(desc(UserProfiles.followers_count))  # Сортировка по количеству подписчиков
 
-        # Пагинация с учетом параметра per_page
-        offset = (page - 1) * per_page
-        query = query.offset(offset).limit(per_page)
+            # Пагинация с учетом параметра per_page
+            offset = (page - 1) * per_page
+            query = query.offset(offset).limit(per_page)
 
-        # Добавление жадной загрузки хэштегов
-        query = query.options(selectinload(UserProfiles.hashtags))  # Жадная загрузка хэштегов
+            # Добавление жадной загрузки хэштегов
+            query = query.options(
+                selectinload(UserProfiles.user),
+                selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag)
+            )
 
-        # Получаем результат
-        result = await db.execute(query)
-        profiles = result.scalars().all()
+            # Получаем результат
+            result = await session.execute(query)
+            profiles = result.scalars().all()
 
-        # Получаем общее количество профилей
-        total = await db.execute(select([func.count()]).select_from(UserProfiles))
-        total = total.scalar()
+            # Формируем данные для ответа
+            profiles_data = []
+            for profile in profiles:
+                # Обработка координат
+                coordinates = process_coordinates_for_response(profile.coordinates)
 
-        logger.info(f"Получено {len(profiles)} профилей для страницы {page}")
-        return {
-            "page": page,
-            "per_page": per_page,
-            "total": total,
-            "profiles": profiles,
-        }
+                # Формирование структуры профиля
+                profile_data = {
+                    "id": profile.id,
+                    "created_at": await datetime_to_str(profile.created_at),
+                    "name": profile.name,
+                    "user_logo_url": profile.user_logo_url,
+                    "video_url": profile.video_url,
+                    "preview_url": profile.preview_url,
+                    "activity_and_hobbies": profile.activity_and_hobbies,
+                    "is_moderated": profile.is_moderated,
+                    "is_incognito": profile.is_incognito,
+                    "is_in_mlm": profile.is_in_mlm,
+                    "adress": profile.adress,
+                    "coordinates": coordinates,
+                    "followers_count": profile.followers_count,
+                    "website_or_social": profile.website_or_social,
+                    "user": {
+                        "id": profile.user.id,
+                        "wallet_number": profile.user.wallet_number,
+                    },
+                    "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],  # Только хэштеги текущего профиля
+                }
+                profiles_data.append(profile_data)
+
+            # Получаем общее количество профилей (без учета пагинации)
+            total_query = select(func.count()).select_from(UserProfiles).filter(UserProfiles.is_incognito == False)
+            total_result = await session.execute(total_query)
+            total = total_result.scalar()
+
+            logger.info(f"Получено {len(profiles)} профилей для страницы {page}")
+            return {
+                "page": page,
+                "per_page": per_page,
+                "total": total,
+                "profiles": profiles_data,
+            }
 
     except SQLAlchemyError as e:
         logger.error(f"Ошибка выполнения запроса к базе данных: {e}")
-        raise Exception("Ошибка базы данных, попробуйте позже.") from e
+        raise HTTPException(status_code=500, detail="Ошибка базы данных, попробуйте позже.")
 
     except Exception as e:
         logger.error(f"Неизвестная ошибка: {e}")
-        raise Exception("Произошла ошибка, попробуйте позже.") from e
+        raise HTTPException(status_code=500, detail="Произошла ошибка, попробуйте позже.")
+
+
 
 
 # Получить список юзеров по городу (поисковой запрос - показать юзеров в городе) с возможностью сортировки по новизне и популярности
