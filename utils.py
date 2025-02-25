@@ -107,7 +107,7 @@ async def datetime_to_str(value):
     return value
 
 
-def process_coordinates_for_response(coordinates) -> Optional[Union[List[float], List[List[float]]]]:
+async def process_coordinates_for_response(coordinates) -> Optional[Union[List[float], List[List[float]]]]:
     """
     Обрабатывает координаты профиля.
 

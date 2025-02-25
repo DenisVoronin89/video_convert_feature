@@ -845,37 +845,17 @@ async def get_profiles(
     page: int = Query(1, ge=1),  # Стартовая страница по умолчанию 1, минимум 1
     per_page: int = Query(25, le=100),  # По умолчанию 25 профилей, максимум 100
     sort_by: Optional[str] = Query(None, enum=["newest", "popularity"]),
-    db: AsyncSession = Depends(get_db_session),
     _: TokenData = Depends(check_user_token)
 ):
-    result = await get_profiles_by_city(city, page, sort_by, per_page, db)
+    result = await get_profiles_by_city(city, page, sort_by, per_page)
     return result
-
-
-# Эндпоинт для получения профилей по хэштегу
-@app.get("/profiles/hashtag/{hashtag}")
-async def fetch_profiles_by_hashtag(
-    hashtag: str,
-    page: int = 1,
-    per_page: int = 25,  # Установлено 25 профилей на страницу
-    sort_by: Optional[str] = Query(None, enum=["newest", "popularity"]),
-    db: AsyncSession = Depends(get_db_session),
-    _: TokenData = Depends(check_user_token)
-):
-    try:
-        result = await get_profiles_by_hashtag(hashtag, page, per_page, sort_by, db)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка при получении данных: {e}")
-
 
 
 # Эндпоинт получения пользователя по номеру кошелька
 @app.get("/profile/by_wallet_number/")
 async def get_profile_by_wallet_number(
         wallet_number: str,
-        _: TokenData = Depends(check_user_token),
-        db: AsyncSession = Depends(get_db_session),
+        _: TokenData = Depends(check_user_token)
 ):
     """
     Получить профиль пользователя по номеру кошелька.
@@ -886,7 +866,7 @@ async def get_profile_by_wallet_number(
     :return: Информация о профиле.
     """
     try:
-        profile_data = await get_profile_by_wallet_number(wallet_number, db)
+        profile_data = await get_profile_by_wallet_number(wallet_number)
         return profile_data
 
     except HTTPException as e:
