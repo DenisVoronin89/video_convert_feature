@@ -198,6 +198,7 @@ class UserResponse(BaseModel):
     id: int
     profile: Optional[UserProfileResponse]
     favorites: Optional[list[int]]
+    hashtags: Optional[list[str]]
     tokens: Token  # Добавляем поле для токенов
 
     class Config:

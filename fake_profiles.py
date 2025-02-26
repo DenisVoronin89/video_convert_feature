@@ -100,13 +100,25 @@ async def generate_favorites(session: AsyncSession):
         favorites = random.sample([p for p in all_profiles if p.id != profile.id], num_favorites)
 
         for favorite in favorites:
-            profile_favorite = Favorite(
-                user_id=profile.user_id,
-                profile_id=favorite.id
+            # Проверяем, существует ли уже такая запись в избранном
+            existing_favorite = await session.execute(
+                select(Favorite).where(
+                    Favorite.user_id == profile.user_id,
+                    Favorite.profile_id == favorite.id
+                )
             )
-            session.add(profile_favorite)
+            existing_favorite = existing_favorite.scalar_one_or_none()
+
+            # Если записи нет, добавляем её
+            if not existing_favorite:
+                profile_favorite = Favorite(
+                    user_id=profile.user_id,
+                    profile_id=favorite.id
+                )
+                session.add(profile_favorite)
 
         await session.commit()
+
 
 # Генерация пользователей и профилей
 async def generate_profiles():

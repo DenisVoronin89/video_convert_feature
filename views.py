@@ -1,6 +1,7 @@
 import os
 import shutil
 import aiofiles
+import hashlib
 from uuid import uuid4
 from fastapi import UploadFile, HTTPException
 from geoalchemy2.shape import to_shape
@@ -12,7 +13,7 @@ from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import desc, func
 
-from models import UserProfiles, Hashtag, ProfileHashtag
+from models import UserProfiles, Hashtag, ProfileHashtag, User
 from database import get_db_session_for_worker
 from utils import process_coordinates_for_response, datetime_to_str, get_file_size
 
@@ -332,56 +333,113 @@ async def get_profiles_by_city(city: str, page: int, sort_by: str, per_page: int
 
 
 # Получение пользователя по номеру кошелька
-async def get_profile_by_wallet_number(wallet_number: str, db: AsyncSession):
+async def get_profile_by_wallet_number(wallet_number: str):
     """
     Логика получения профиля пользователя по номеру кошелька (асинхронно).
 
     :param wallet_number: Номер кошелька для поиска.
-    :param db: Сессия базы данных.
     :return: Словарь с информацией о профиле.
     :raises HTTPException: Если профиль не найден или произошла ошибка.
     """
     try:
-        # Хэширование номера кошелька для поиска
-        hashed_wallet_number = hashlib.sha256(wallet_number.encode()).hexdigest()
-        logger.info(f"Ищем пользователя с хэшированным номером кошелька: {hashed_wallet_number}")
+        async with get_db_session_for_worker() as db:  # Открываем сессию внутри функции
+            # Хэширование номера кошелька для поиска
+            hashed_wallet_number = hashlib.sha256(wallet_number.encode()).hexdigest()
+            logger.info(f"Ищем пользователя с хэшированным номером кошелька: {hashed_wallet_number}")
 
-        # Поиск пользователя по хэшированному номеру кошелька
-        result = await db.execute(
-            db.query(User).filter(User.wallet_number == hashed_wallet_number)
-        )
-        user = result.scalar_one_or_none()
+            # Поиск пользователя по хэшированному номеру кошелька
+            query = select(User).filter(User.wallet_number == hashed_wallet_number).options(
+                selectinload(User.profile).selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag)
+            )
+            result = await db.execute(query)
+            user = result.scalar_one_or_none()
 
-        if not user:
-            logger.error(f"Пользователь с номером кошелька {wallet_number} не найден.")
-            raise HTTPException(status_code=404, detail="Пользователь с таким номером кошелька не найден.")
+            if not user:
+                logger.error(f"Пользователь с номером кошелька {wallet_number} не найден.")
+                raise HTTPException(status_code=404, detail="Пользователь с таким номером кошелька не найден.")
 
-        if not user.is_profile_created or not user.profile:
-            logger.error(f"Профиль пользователя с номером кошелька {wallet_number} не найден.")
-            raise HTTPException(status_code=404, detail="Профиль пользователя не найден.")
+            if not user.is_profile_created or not user.profile:
+                logger.error(f"Профиль пользователя с номером кошелька {wallet_number} не найден.")
+                raise HTTPException(status_code=404, detail="Профиль пользователя не найден.")
 
-        # Формирование данных профиля для ответа
-        profile = user.profile
-        profile_data = {
-            "id": profile.id,
-            "name": profile.name,
-            "user_logo_url": profile.user_logo_url,
-            "video_url": profile.video_url,
-            "preview_url": profile.preview_url,
-            "activity_and_hobbies": profile.activity_and_hobbies,
-            "is_moderated": profile.is_moderated,
-            "is_incognito": profile.is_incognito,
-            "is_in_mlm": profile.is_in_mlm,
-            "adress": profile.adress,
-            "city": profile.city,
-            "coordinates": profile.coordinates,
-            "followers_count": profile.followers_count,
-            "created_at": profile.created_at,
-        }
+            # Формирование данных профиля для ответа
+            profile = user.profile
+            profile_data = {
+                "id": profile.id,
+                "name": profile.name,
+                "user_logo_url": profile.user_logo_url,
+                "video_url": profile.video_url,
+                "preview_url": profile.preview_url,
+                "activity_and_hobbies": profile.activity_and_hobbies,
+                "is_moderated": profile.is_moderated,
+                "is_incognito": profile.is_incognito,
+                "is_in_mlm": profile.is_in_mlm,
+                "adress": profile.adress,
+                "city": profile.city,
+                "coordinates": await process_coordinates_for_response(profile.coordinates),  # Обработка координат
+                "followers_count": profile.followers_count,
+                "created_at": await datetime_to_str(profile.created_at),  # Преобразование даты в строку
+                "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],  # Хэштеги текущего профиля
+            }
 
-        logger.info(f"Профиль пользователя с номером кошелька {wallet_number} успешно найден.")
-        return profile_data
+            logger.info(f"Профиль пользователя с номером кошелька {wallet_number} успешно найден.")
+            return profile_data
 
+    except HTTPException as e:
+        raise e
     except Exception as e:
         logger.error(f"Ошибка при получении профиля для кошелька {wallet_number}: {e}")
         raise HTTPException(status_code=500, detail="Ошибка сервера при получении профиля.")
+
+
+# Получение пользователя по имени
+async def get_profile_by_username(username: str):
+    """
+    Логика получения профиля пользователя по имени (асинхронно).
+
+    :param username: Имя пользователя для поиска.
+    :return: Словарь с информацией о профиле.
+    :raises HTTPException: Если профиль не найден или произошла ошибка.
+    """
+    try:
+        async with get_db_session_for_worker() as db:  # Открываем сессию внутри функции
+            # Поиск профиля по имени (регистронезависимый поиск!!!!!!)
+            query = select(UserProfiles).filter(UserProfiles.name.ilike(f"%{username}%")).options(
+                selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag)
+            )
+            result = await db.execute(query)
+            profile = result.scalars().first()
+
+            if not profile:
+                logger.error(f"Профиль с именем {username} не найден.")
+                raise HTTPException(status_code=404, detail="Профиль с таким именем не найден.")
+
+            # Формирование данных профиля для ответа
+            profile_data = {
+                "id": profile.id,
+                "name": profile.name,
+                "user_logo_url": profile.user_logo_url,
+                "video_url": profile.video_url,
+                "preview_url": profile.preview_url,
+                "activity_and_hobbies": profile.activity_and_hobbies,
+                "is_moderated": profile.is_moderated,
+                "is_incognito": profile.is_incognito,
+                "is_in_mlm": profile.is_in_mlm,
+                "adress": profile.adress,
+                "city": profile.city,
+                "coordinates": await process_coordinates_for_response(profile.coordinates),  # Обработка координат
+                "followers_count": profile.followers_count,
+                "created_at": await datetime_to_str(profile.created_at),  # Преобразование даты в строку
+                "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],  # Хэштеги текущего профиля
+            }
+
+            logger.info(f"Профиль пользователя с именем {username} успешно найден.")
+            return profile_data
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Ошибка при получении профиля для имени {username}: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка сервера при получении профиля.")
+
+

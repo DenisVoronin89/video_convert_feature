@@ -2,6 +2,7 @@ import os
 import asyncio
 import json
 from pydantic import HttpUrl
+from datetime import timedelta
 from fastapi import FastAPI, UploadFile, HTTPException, File, Depends, Query, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
@@ -12,6 +13,7 @@ from redis.exceptions import RedisError
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import joinedload, subqueryload, selectinload
 from geoalchemy2.functions import ST_DWithin, ST_MakePoint
 from geoalchemy2.shape import from_shape
 from shapely import wkt
@@ -34,6 +36,8 @@ from views import (
     move_image_to_user_logo,
     get_profiles_by_city,
     get_all_profiles,
+    get_profile_by_wallet_number,
+    get_profile_by_username
 )
 from schemas import FormData, TokenResponse, UserProfileResponse, UserResponse, is_valid_image, is_valid_video, serialize_form_data, validate_and_process_form
 from models import User, UserProfiles, Favorite, Hashtag, ProfileHashtag
@@ -51,7 +55,7 @@ from cashe import (
     get_cached_profiles
 )
 from tokens import TokenData, create_tokens, verify_access_token
-from utils import delete_old_files_task, parse_coordinates
+from utils import delete_old_files_task, parse_coordinates, process_coordinates_for_response
 
 
 logger = get_logger()
@@ -89,10 +93,10 @@ async def start_scheduler():
     """Запуск планировщика задач."""
     scheduler = AsyncIOScheduler()
 
-    # Задача, которая выполняется каждые 3 минуты (слив каунтера звездочек и избранного из Редиски в БД)
+    # Задача, которая выполняется каждые 45 секунд (слив каунтера звездочек и избранного из Редиски в БД)
     # Вместо использования asyncio.run() вызываем саму асинхронную функцию
-    # scheduler.add_job(sync_data_to_db, IntervalTrigger(minutes=3))
-    # logger.info("Задача sync_data_to_db добавлена в расписание (каждые 3 минуты).")
+    # scheduler.add_job(sync_data_to_db, IntervalTrigger(seconds=45))
+    # logger.info("Задача sync_data_to_db добавлена в расписание (каждые 45 секунд).")
 
     # Задача, которая выполняется каждую минуту (получаем в Редиску 50 профилей на отгрузку при входе в приложение)
     scheduler.add_job(get_sorted_profiles, IntervalTrigger(minutes=1))
@@ -184,9 +188,13 @@ async def check_user_token(credentials: HTTPAuthorizationCredentials = Depends(o
 
 # Эндпоинт для регистрации/авторизации пользователя, отдача избранного и информации о профиле на фронт, генерация токенов
 @app.post("/user/login", response_model=UserResponse)
-async def login(wallet_number: str, session: AsyncSession = Depends(get_db_session), redis_client: redis.Redis = Depends(get_redis_client)):
+async def login(
+    wallet_number: str,
+    session: AsyncSession = Depends(get_db_session),
+    redis_client: redis.Redis = Depends(get_redis_client)
+):
     try:
-        # Хэшируем номер кошелька
+        # Хешируем номер кошелька
         logger.info("Начало хеширования номера кошелька.")
         hashed_wallet_number = hashlib.sha256(wallet_number.encode()).hexdigest()
         logger.info(f"Хеш номера кошелька: {hashed_wallet_number}")
@@ -197,104 +205,65 @@ async def login(wallet_number: str, session: AsyncSession = Depends(get_db_sessi
         result = await session.execute(stmt)
         user = result.scalar_one_or_none()
 
-        if not user:
-            # 3. Если пользователя нет, создаем нового
+        if user:
+            # Если пользователь найден, получаем профиль и избранное
+            logger.info(f"Пользователь найден с ID {user.id}")
+            profile_stmt = select(UserProfiles).filter(UserProfiles.user_id == user.id)
+            profile_result = await session.execute(profile_stmt)
+            profile = profile_result.scalar_one_or_none()
+            profile_info = UserProfileResponse.model_validate(profile) if profile else None
+            logger.info(f"Профиль пользователя: {profile_info}")
+
+            # Попытка получить избранное из Redis
+            logger.info("Попытка получить избранное из кэша Redis.")
+            favorite_ids = await get_favorites_from_cache(user.id)
+
+            if not favorite_ids:
+                logger.info("Избранное не найдено в кэше. Загружаем из базы данных.")
+                favorite_stmt = select(Favorite).filter(Favorite.user_id == user.id)
+                favorite_result = await session.execute(favorite_stmt)
+                favorites = favorite_result.scalars().all()
+                favorite_ids = [favorite.profile_id for favorite in favorites]
+                logger.info(f"Избранное загружено из БД: {favorite_ids}")
+            else:
+                logger.info(f"Избранное получено из кэша: {favorite_ids}")
+
+            # Генерация токенов
+            logger.info("Генерация токенов для пользователя.")
+            tokens = await create_tokens(user.id)
+            logger.info("Токены успешно сгенерированы.")
+
+            return UserResponse(
+                id=user.id,
+                profile=profile_info,
+                favorites=favorite_ids,
+                tokens=tokens,
+            )
+
+        else:
+            # Если пользователя нет, создаем нового
             logger.info("Пользователь не найден, создаем нового.")
             user = User(wallet_number=hashed_wallet_number)
             session.add(user)
-            await session.commit()
-            await session.refresh(user)
+            await session.commit()  # Сохраняем пользователя в БД
+            await session.refresh(user)  # Обновляем данные пользователя
             logger.info(f"Создан новый пользователь с ID {user.id}")
-        else:
-            logger.info(f"Пользователь найден с ID {user.id}")
 
-        # Получаем профиль пользователя (если есть)
-        logger.info("Загрузка профиля пользователя из базы данных.")
-        profile_stmt = select(UserProfiles).filter(UserProfiles.user_id == user.id)
-        profile_result = await session.execute(profile_stmt)
-        profile = profile_result.scalar_one_or_none()
+            # Профиль и избранное не запрашиваются, так как пользователь только что создан.
+            profile_info = None
+            favorite_ids = []
 
-        # Преобразуем профиль в ответ
-        profile_info = None
-        if profile:
-            # Обработка координат
-            coordinates = None
-            if profile.coordinates:
-                try:
-                    # Преобразуем строку WKT в геометрический объект
-                    geometry = wkt.loads(str(profile.coordinates))
-                    # Получаем список координат (если это Point, то просто вернем его координаты)
-                    coordinates = [list(geometry.coords)[0]] if isinstance(geometry, Point) else [list(coord) for coord in geometry.coords]
-                except Exception as e:
-                    logger.error(f"Ошибка при парсинге координат: {str(e)}")
+            # Генерация токенов
+            logger.info("Генерация токенов для пользователя.")
+            tokens = await create_tokens(user.id)
+            logger.info("Токены успешно сгенерированы.")
 
-            profile_info = UserProfileResponse(
-                id=profile.id,
-                created_at=profile.created_at,
-                name=profile.name,
-                user_logo_url=profile.user_logo_url,
-                video_url=profile.video_url,
-                preview_url=profile.preview_url,
-                activity_and_hobbies=profile.activity_and_hobbies,
-                is_moderated=profile.is_moderated,
-                is_incognito=profile.is_incognito,
-                is_in_mlm=profile.is_in_mlm,
-                website_or_social=profile.website_or_social,
-                is_admin=profile.is_admin,
-                adress=profile.adress if isinstance(profile.adress, list) else [],
-                city=profile.city,
-                coordinates=coordinates,  # Отдаем уже преобразованные координаты
-                followers_count=profile.followers_count,
-                language=profile.language
+            return UserResponse(
+                id=user.id,
+                profile=profile_info,
+                favorites=favorite_ids,
+                tokens=tokens,
             )
-            logger.info(f"Профиль пользователя: {profile_info}")
-
-        # Получаем хэштеги пользователя, если профиль существует
-        hashtags_info = []
-        if profile:
-            logger.info("Загрузка хэштегов пользователя.")
-            hashtags_stmt = (
-                select(Hashtag)
-                .join(ProfileHashtag, ProfileHashtag.hashtag_id == Hashtag.id)
-                .join(UserProfiles, UserProfiles.id == ProfileHashtag.profile_id)
-                .filter(UserProfiles.id == profile.id)
-            )
-            hashtags_result = await session.execute(hashtags_stmt)
-            hashtags = hashtags_result.scalars().all()
-            hashtags_info = [hashtag.tag for hashtag in hashtags] if hashtags else []
-            logger.info(f"Хэштеги пользователя: {hashtags_info}")
-        else:
-            logger.info("Профиль пользователя не найден, хэштеги не будут загружены.")
-
-        # Получаем избранное из кэша Redis
-        logger.info("Попытка получить избранное из кэша Redis.")
-        favorite_ids = await get_favorites_from_cache(user.id)
-
-        # Если в Redis пусто
-        if not favorite_ids:
-            logger.info("Избранное не найдено в кэше. Загружаем из базы данных.")
-            favorite_stmt = select(Favorite).filter(Favorite.user_id == user.id)
-            favorite_result = await session.execute(favorite_stmt)
-            favorites = favorite_result.scalars().all()
-            favorite_ids = [favorite.profile_id for favorite in favorites]
-            logger.info(f"Избранное загружено из БД: {favorite_ids}")
-        else:
-            logger.info(f"Избранное получено из кэша: {favorite_ids}")
-
-        # Генерация токенов
-        logger.info("Генерация токенов для пользователя.")
-        tokens = await create_tokens(user.id)
-        logger.info("Токены успешно сгенерированы.")
-
-        # Формируем и возвращаем ответ
-        logger.info(f"Возвращаем ответ для пользователя с ID {user.id}.")
-        return UserResponse(
-            id=user.id,
-            profile=profile_info,
-            favorites=favorite_ids,
-            hashtags=hashtags_info,
-            tokens=tokens,
-        )
 
     except SQLAlchemyError as e:
         logger.error(f"Ошибка работы с БД: {str(e)}")
@@ -303,6 +272,10 @@ async def login(wallet_number: str, session: AsyncSession = Depends(get_db_sessi
     except Exception as e:
         logger.error(f"Ошибка при обработке запроса: {str(e)}")
         raise HTTPException(status_code=400, detail="Ошибка при обработке запроса.")
+
+
+
+
 
 
 # Эндпоинт для загрузки изображения
@@ -623,6 +596,7 @@ async def create_or_update_user_profile(
         session.add(profile)
         logger.info(f"Обновлен профиль пользователя {user.id}")
     else:
+        # Создаем новый профиль
         new_profile = UserProfiles(
             name=form_data.name,
             website_or_social=form_data.website_or_social,
@@ -641,35 +615,49 @@ async def create_or_update_user_profile(
 
         user.is_profile_created = True
         session.add(new_profile)
+        await session.flush()  # Фиксируем изменения, чтобы получить ID нового профиля
+
+        # Обновляем переменную profile, чтобы она ссылалась на новый профиль
+        profile = new_profile
         logger.info(f"Создан профиль для пользователя {user.id}")
 
     # Работа с хэштегами
-    if form_data.hashtags:
-        hashtags_list = [tag.strip().lower() for tag in form_data.hashtags if tag.strip()]
+    if form_data.hashtags:  # Проверяем, что хэштеги переданы
+        hashtags_list = [tag.strip().lower().lstrip("#") for tag in form_data.hashtags if tag.strip()]
         if hashtags_list:
             # Поиск и проверка существующих хэштегов
             existing_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
             existing_hashtags_result = await session.execute(existing_hashtags_stmt)
             existing_hashtags = {tag.tag: tag for tag in existing_hashtags_result.scalars().all()}
 
+            # Список для хранения новых хэштегов
+            new_hashtags = []
+
             for hashtag in hashtags_list:
                 if hashtag not in existing_hashtags:
                     # Если хэштег отсутствует - добавляем
                     new_hashtag = Hashtag(tag=hashtag)
                     session.add(new_hashtag)
-                    await session.flush()  # Дожидаемся генерации ID
+                    new_hashtags.append(new_hashtag)
 
-                    # Добавление связи между профилем и хэштегом
-                    profile_hashtag = ProfileHashtag(profile_id=profile.id,  # Используй profile для обновления
-                                                     hashtag_id=new_hashtag.id)  # Связь с профилем
-                    session.add(profile_hashtag)
+            # Фиксируем новые хэштеги в базе данных
+            await session.flush()
+
+            # Теперь создаем связи между профилем и хэштегами
+            for hashtag in hashtags_list:
+                if hashtag not in existing_hashtags:
+                    # Находим новый хэштег в списке new_hashtags
+                    new_hashtag = next((h for h in new_hashtags if h.tag == hashtag), None)
+                    if new_hashtag:
+                        # Добавление связи между профилем и новым хэштегом
+                        profile_hashtag = ProfileHashtag(profile_id=profile.id, hashtag_id=new_hashtag.id)
+                        session.add(profile_hashtag)
                 else:
                     # Привязка существующего хэштега к профилю через таблицу ProfileHashtag
-                    profile_hashtag = ProfileHashtag(profile_id=profile.id,  # Используй profile для обновления
-                                                     hashtag_id=existing_hashtags[hashtag].id)  # Связь с профилем
+                    profile_hashtag = ProfileHashtag(profile_id=profile.id, hashtag_id=existing_hashtags[hashtag].id)
                     session.add(profile_hashtag)
 
-            logger.info(f"Хэштеги добавлены/обновлены для профиля пользователя {user.id}")
+                logger.info(f"Хэштеги добавлены/обновлены для профиля пользователя {user.id}")
 
     # Подтверждаем изменения в БД
     await session.commit()
@@ -685,15 +673,15 @@ async def add_to_favorites_and_increment(
     user_id: int,
     profile_id: int,
     redis_client: redis.Redis = Depends(get_redis_client),
-    _: TokenData = Depends(check_user_token)):
+    _: TokenData = Depends(check_user_token)
+):
     """ Добавить профиль в избранное пользователя и увеличить счётчик подписчиков """
     try:
-        # Добавляем профиль в избранное
-        await add_to_favorites(user_id=user_id, profile_id=profile_id)
+        add_status = await add_to_favorites(user_id=user_id, profile_id=profile_id)
+        if add_status.get("status") == "already_in_favorites":
+            return {"сообщение": f"Профиль {profile_id} уже в избранном"}
 
-        # Увеличиваем счётчик подписчиков
         new_count = await increment_subscribers_count(profile_id=profile_id)
-
         return {
             "сообщение": f"Профиль {profile_id} добавлен в избранное",
             "новое количество подписчиков": new_count,
@@ -711,19 +699,13 @@ async def remove_from_favorites_and_decrement(
     redis_client: redis.Redis = Depends(get_redis_client),
     _: TokenData = Depends(check_user_token)
 ):
-    """
-    Удалить профиль из избранного пользователя и уменьшить счётчик подписчиков.
-
-    :param user_id: ID пользователя.
-    :param profile_id: ID профиля.
-    """
+    """ Удалить профиль из избранного пользователя и уменьшить счётчик подписчиков """
     try:
-        # Удаляем профиль из избранного
-        await remove_from_favorites(user_id=user_id, profile_id=profile_id)
+        remove_status = await remove_from_favorites(user_id=user_id, profile_id=profile_id)
+        if remove_status.get("status") == "not_in_favorites":
+            return {"сообщение": f"Профиль {profile_id} не был в избранном"}
 
-        # Уменьшаем счётчик подписчиков
         new_count = await decrement_subscribers_count(profile_id=profile_id)
-
         return {
             "сообщение": f"Профиль {profile_id} удалён из избранного",
             "новое количество подписчиков": new_count,
@@ -735,15 +717,16 @@ async def remove_from_favorites_and_decrement(
 
 # Эндпоинт для получения текущего счётчика подписчиков
 @app.get("/subscribers/count/")
-async def get_subscribers_count(profile_id: int, redis_client: redis.Redis = Depends(get_redis_client), _: TokenData = Depends(check_user_token)):
-    """
-    Получить текущее количество подписчиков профиля.
-
-    :param profile_id: ID профиля.
-    """
+async def get_subscribers_count(
+    profile_id: int,
+    redis_client: redis.Redis = Depends(get_redis_client),
+    _: TokenData = Depends(check_user_token)
+):
+    """ Получить текущее количество подписчиков профиля """
     try:
-        count = await get_subscribers_count_from_cache(profile_id)  # Используем функцию из кэш-модуля
-        logger.info(f"Текущий счётчик подписчиков для профиля {profile_id}: {count}")
+        count = await get_subscribers_count_from_cache(profile_id)
+        if count is None:
+            raise HTTPException(status_code=404, detail="Счётчик подписчиков не найден")
         return {"id_профиля": profile_id, "количество подписчиков": count}
     except Exception as e:
         logger.error(f"Ошибка при получении счётчика подписчиков профиля {profile_id}: {str(e)}")
@@ -792,14 +775,6 @@ async def get_profiles(
         profiles_from_db = await get_sorted_profiles()
         logger.info("Профили успешно загружены из базы данных.")
 
-        # Сохраняем полученные профили в Redis
-        try:
-            await redis_client.set("profiles_cache", json.dumps(profiles_from_db), ex=3600)
-            logger.info("Профили успешно сохранены в кэше Redis.")
-        except RedisError as redis_e:
-            logger.error(f"Ошибка при записи данных в Redis: {str(redis_e)}")
-
-        logger.info("Профили успешно возвращены клиенту из базы данных.")
         return JSONResponse(content=profiles_from_db)
 
     except HTTPException:
@@ -853,16 +828,15 @@ async def get_profiles(
 
 # Эндпоинт получения пользователя по номеру кошелька
 @app.get("/profile/by_wallet_number/")
-async def get_profile_by_wallet_number(
-        wallet_number: str,
-        _: TokenData = Depends(check_user_token)
+async def get_profile_by_wallet_number_endpoint(
+    wallet_number: str,
+    _: TokenData = Depends(check_user_token)  # Проверка токена
 ):
     """
     Получить профиль пользователя по номеру кошелька.
 
     :param wallet_number: Номер кошелька для поиска.
     :param _: Проверка токена пользователя.
-    :param db: Сессия базы данных.
     :return: Информация о профиле.
     """
     try:
@@ -876,51 +850,58 @@ async def get_profile_by_wallet_number(
         raise HTTPException(status_code=500, detail="Ошибка сервера при получении профиля.")
 
 
-
 # Эндпоинт получения пользователя по имени
 @app.get("/profile/by_username/")
-async def get_profile_by_username(
-        username: str,
-        _: TokenData = Depends(check_user_token),
-        db: AsyncSession = Depends(get_db_session),
-):
+async def get_profile_by_username_endpoint(username: str, _: TokenData = Depends(check_user_token)):
     """
     Получить профиль пользователя по имени.
 
     :param username: Имя пользователя для поиска.
     :param _: Проверка токена пользователя.
-    :param db: Сессия базы данных.
     :return: Информация о профиле.
     """
     try:
-        # Поиск профиля по имени
-        profile = db.query(UserProfiles).filter(UserProfiles.name.ilike(f"%{username}%")).first()
-
-        if not profile:
-            raise HTTPException(status_code=404, detail="Профиль с таким именем не найден.")
-
-        # Отдаем информацию профиля
-        return {
-            "id": profile.id,
-            "name": profile.name,
-            "user_logo_url": profile.user_logo_url,
-            "video_url": profile.video_url,
-            "preview_url": profile.preview_url,
-            "activity_and_hobbies": profile.activity_and_hobbies,
-            "is_moderated": profile.is_moderated,
-            "is_incognito": profile.is_incognito,
-            "is_in_mlm": profile.is_in_mlm,
-            "adress": profile.adress,
-            "city": profile.city,
-            "coordinates": profile.coordinates,
-            "followers_count": profile.followers_count,
-            "created_at": profile.created_at,
-        }
+        profile_data = await get_profile_by_username(username)
+        return profile_data
 
     except HTTPException as e:
         raise e
     except Exception as e:
+        logger.error(f"Ошибка при обработке запроса профиля по имени {username}: {e}")
         raise HTTPException(status_code=500, detail="Ошибка сервера при получении профиля.")
+
+
+# Эндпоинт для получения профилей по хэштегу с кэшированием и сортировкой
+@app.get("/profiles/by-hashtag/")
+async def get_profiles_by_hashtag_endpoint(
+    hashtag: str,
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=10, ge=1, le=100),
+    sort_by: Optional[str] = Query(default=None, description="Сортировка по: newest или popularity"),
+    redis_client: redis.Redis = Depends(get_redis_client)
+):
+    try:
+        # Формируем ключ кэша на основе параметров запроса
+        cache_key = f"profiles_hashtag_{hashtag}_page_{page}_per_page_{per_page}_sort_{sort_by}"
+
+        # Проверяем, есть ли данные в кэше
+        cached_data = await redis_client.get(cache_key)
+        if cached_data:
+            logger.info(f"Данные найдены в кэше для ключа {cache_key}.")
+            return JSONResponse(content=json.loads(cached_data))
+
+        # Если кэш пуст, получаем данные из базы данных
+        response_data = await get_profiles_by_hashtag(hashtag, page, per_page, sort_by)
+        logger.info("Профили успешно загружены из базы данных.")
+
+        return JSONResponse(content=response_data)
+
+    except HTTPException:
+        raise  # Пробрасываем HTTP-исключения без изменений
+    except Exception as e:
+        logger.error(f"Ошибка в эндпоинте /profiles/by-hashtag/: {str(e)}")
+        raise HTTPException(status_code=500, detail="Ошибка при получении профилей")
+
 
 
 # Эндпоинт получения профилей пользователей в радиусе 10 км от клиента
