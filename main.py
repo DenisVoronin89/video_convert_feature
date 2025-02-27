@@ -55,7 +55,7 @@ from cashe import (
     get_cached_profiles
 )
 from tokens import TokenData, create_tokens, verify_access_token
-from utils import delete_old_files_task, parse_coordinates, process_coordinates_for_response
+from utils import delete_old_files_task, parse_coordinates, process_coordinates_for_response, datetime_to_str
 
 
 logger = get_logger()
@@ -187,7 +187,7 @@ async def check_user_token(credentials: HTTPAuthorizationCredentials = Depends(o
 
 
 # Эндпоинт для регистрации/авторизации пользователя, отдача избранного и информации о профиле на фронт, генерация токенов
-@app.post("/user/login", response_model=UserResponse)
+@app.post("/user/login")
 async def login(
     wallet_number: str,
     session: AsyncSession = Depends(get_db_session),
@@ -208,11 +208,41 @@ async def login(
         if user:
             # Если пользователь найден, получаем профиль и избранное
             logger.info(f"Пользователь найден с ID {user.id}")
-            profile_stmt = select(UserProfiles).filter(UserProfiles.user_id == user.id)
+            profile_stmt = select(UserProfiles).filter(UserProfiles.user_id == user.id).options(
+                selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag)
+            )
             profile_result = await session.execute(profile_stmt)
             profile = profile_result.scalar_one_or_none()
-            profile_info = UserProfileResponse.model_validate(profile) if profile else None
-            logger.info(f"Профиль пользователя: {profile_info}")
+
+            # Формирование данных профиля для ответа
+            profile_data = None
+            if profile:
+                # Обработка координат
+                coordinates = await process_coordinates_for_response(profile.coordinates) if profile.coordinates else None
+
+                # Преобразование даты в строку
+                created_at_str = await datetime_to_str(profile.created_at) if profile.created_at else None
+
+                profile_data = {
+                    "id": profile.id,
+                    "name": profile.name,
+                    "user_logo_url": profile.user_logo_url,
+                    "video_url": profile.video_url,
+                    "preview_url": profile.preview_url,
+                    "activity_and_hobbies": profile.activity_and_hobbies,
+                    "is_moderated": profile.is_moderated,
+                    "is_incognito": profile.is_incognito,
+                    "is_in_mlm": profile.is_in_mlm,
+                    "adress": profile.adress,
+                    "city": profile.city,
+                    "coordinates": coordinates,  # Обработанные координаты
+                    "followers_count": profile.followers_count,
+                    "created_at": created_at_str,  # Преобразованная дата
+                    "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],  # Хэштеги текущего профиля
+                    "website_or_social": profile.website_or_social,  # Добавляем недостающие поля
+                    "is_admin": profile.is_admin,
+                    "language": profile.language,
+                }
 
             # Попытка получить избранное из Redis
             logger.info("Попытка получить избранное из кэша Redis.")
@@ -233,12 +263,15 @@ async def login(
             tokens = await create_tokens(user.id)
             logger.info("Токены успешно сгенерированы.")
 
-            return UserResponse(
-                id=user.id,
-                profile=profile_info,
-                favorites=favorite_ids,
-                tokens=tokens,
-            )
+            # Формируем ответ вручную
+            response_data = {
+                "id": user.id,
+                "profile": profile_data,
+                "favorites": favorite_ids,
+                "tokens": tokens,
+            }
+
+            return response_data
 
         else:
             # Если пользователя нет, создаем нового
@@ -250,7 +283,7 @@ async def login(
             logger.info(f"Создан новый пользователь с ID {user.id}")
 
             # Профиль и избранное не запрашиваются, так как пользователь только что создан.
-            profile_info = None
+            profile_data = None
             favorite_ids = []
 
             # Генерация токенов
@@ -258,12 +291,15 @@ async def login(
             tokens = await create_tokens(user.id)
             logger.info("Токены успешно сгенерированы.")
 
-            return UserResponse(
-                id=user.id,
-                profile=profile_info,
-                favorites=favorite_ids,
-                tokens=tokens,
-            )
+            # Формируем ответ вручную
+            response_data = {
+                "id": user.id,
+                "profile": profile_data,
+                "favorites": favorite_ids,
+                "tokens": tokens,
+            }
+
+            return response_data
 
     except SQLAlchemyError as e:
         logger.error(f"Ошибка работы с БД: {str(e)}")
@@ -272,10 +308,6 @@ async def login(
     except Exception as e:
         logger.error(f"Ошибка при обработке запроса: {str(e)}")
         raise HTTPException(status_code=400, detail="Ошибка при обработке запроса.")
-
-
-
-
 
 
 # Эндпоинт для загрузки изображения

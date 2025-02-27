@@ -168,11 +168,11 @@ MIME-тип или расширение, но на самом деле явля�
     "is_in_mlm": 1,
     "is_incognito": false,
     "name": "Ебобо ЕЩЕ Какой",
-    "wallet_number": "0x97b1B8cfa04fA93f66Ad574F770D86EBC7d4755",
+    "wallet_number": "0x53b9B8cfa28fA93f66Ad574F770D86EBC2d4755",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/742dff5d-b820-4d55-ba79-17fc17ee8fa9_orig_cat.webp"
+    "image_path": "./image_temp/3034d80a-d7f0-47e0-986f-b001a92c0fe8_orig_cat.webp"
   }
 }
 
