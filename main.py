@@ -789,8 +789,7 @@ async def get_favorites(user_id: int, redis_client: redis.Redis = Depends(get_re
 @app.get("/profiles/main")
 async def get_profiles(
     # session: AsyncSession = Depends(get_db_session),
-    redis_client: redis.Redis = Depends(get_redis_client),
-    _: TokenData = Depends(check_user_token)
+    redis_client: redis.Redis = Depends(get_redis_client)
 ):
     """
     Получение первых 50 профилей. Сначала пытаемся получить их из кэша,
@@ -821,8 +820,7 @@ async def get_profiles(
 async def get_all_profiles_to_client(
     page: int = Query(1, description="Номер страницы (начинается с 1).", ge=1),  # Страница (по умолчанию 1)
     sort_by: Optional[str] = Query(None, description="Параметр сортировки. Возможные значения: newest, popularity.", enum=["newest", "popularity"]),
-    per_page: int = Query(25, description="Количество профилей на странице.", le=100),  # По умолчанию 25 профилей, максимум 100
-    _: TokenData = Depends(check_user_token)
+    per_page: int = Query(25, description="Количество профилей на странице.", le=100)  # По умолчанию 25 профилей, максимум 100
 ):
     """
     Получает все профили пользователей с пагинацией и сортировкой.
@@ -851,8 +849,7 @@ async def get_profiles(
     city: str,
     page: int = Query(1, ge=1),  # Стартовая страница по умолчанию 1, минимум 1
     per_page: int = Query(25, le=100),  # По умолчанию 25 профилей, максимум 100
-    sort_by: Optional[str] = Query(None, enum=["newest", "popularity"]),
-    _: TokenData = Depends(check_user_token)
+    sort_by: Optional[str] = Query(None, enum=["newest", "popularity"])
 ):
     result = await get_profiles_by_city(city, page, sort_by, per_page)
     return result
@@ -860,10 +857,7 @@ async def get_profiles(
 
 # Эндпоинт получения пользователя по номеру кошелька
 @app.get("/profile/by_wallet_number/")
-async def get_profile_by_wallet_number_endpoint(
-    wallet_number: str,
-    _: TokenData = Depends(check_user_token)  # Проверка токена
-):
+async def get_profile_by_wallet_number_endpoint(wallet_number: str):
     """
     Получить профиль пользователя по номеру кошелька.
 
@@ -884,7 +878,7 @@ async def get_profile_by_wallet_number_endpoint(
 
 # Эндпоинт получения пользователя по имени
 @app.get("/profile/by_username/")
-async def get_profile_by_username_endpoint(username: str, _: TokenData = Depends(check_user_token)):
+async def get_profile_by_username_endpoint(username: str):
     """
     Получить профиль пользователя по имени.
 
