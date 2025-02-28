@@ -195,3 +195,5 @@ find . -type f -name "*.py" -not -path "./venv/*" -not -path "./.venv/*" -not -p
 (105.1312, 11.6338)
 
 "id": 155
+
+спорт

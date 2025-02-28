@@ -908,7 +908,7 @@ async def get_profiles_by_hashtag_endpoint(
     hashtag: str,
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=10, ge=1, le=100),
-    sort_by: Optional[str] = Query(default=None, description="Сортировка по: newest или popularity"),
+    sort_by: Optional[str] = Query(None, enum=["newest", "popularity"]),
     redis_client: redis.Redis = Depends(get_redis_client)
 ):
     try:

@@ -9,7 +9,7 @@ from fastapi import HTTPException
 import redis.asyncio as redis
 from redis.exceptions import RedisError
 from typing import Optional
-from sqlalchemy import func
+from sqlalchemy import func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, subqueryload, selectinload
 from sqlalchemy.future import select
@@ -450,11 +450,13 @@ async def get_profiles_by_hashtag(
     Исключения:
         HTTPException: При ошибке запроса к базе данных или Redis.
     """
-    # Добавляем решетку к хэштегу, если её нет
-    if not hashtag.startswith("#"):
-        hashtag = f"#{hashtag}"
+    # Убираем решетку, если она есть
+    normalized_hashtag = hashtag.lstrip("#")
+    hashtag_with_hash = f"#{normalized_hashtag}"  # Вариант с решеткой
+    hashtag_without_hash = normalized_hashtag  # Вариант без решетки
 
-    cache_key = f"profiles_hashtag_{hashtag}_page_{page}_per_page_{per_page}_sort_{sort_by}"
+    # Формируем ключ для кэша
+    cache_key = f"profiles_hashtag_{normalized_hashtag}_page_{page}_per_page_{per_page}_sort_{sort_by}"
 
     # Проверка наличия данных в кэше
     cached_data = await redis_client.get(cache_key)
@@ -463,13 +465,21 @@ async def get_profiles_by_hashtag(
         return json.loads(cached_data)  # Декодируем данные из JSON
 
     try:
-        async with get_db_session_for_worker() as db:  # Открываем сессию внутри функции
-            # Строим запрос для получения профилей по хэштегам
+        async with get_db_session_for_worker() as db:
+            # Проверяем, какие версии хэштега есть в базе
+            existing_hashtags = await db.execute(
+                select(Hashtag.tag).where(
+                    Hashtag.tag.in_([hashtag_with_hash, hashtag_without_hash])
+                )
+            )
+            existing_hashtags = {tag[0] for tag in existing_hashtags.fetchall()}
+
+            # Условие для поиска
             query = (
                 select(UserProfiles)
-                .join(UserProfiles.profile_hashtags)  # Связь с profile_hashtags
-                .join(ProfileHashtag.hashtag)  # Связь с hashtags
-                .filter(Hashtag.tag.ilike(hashtag))  # Игнорируем регистр хэштега
+                .join(UserProfiles.profile_hashtags)
+                .join(ProfileHashtag.hashtag)
+                .filter(Hashtag.tag.in_(existing_hashtags))  # Фильтр по существующим тегам
                 .options(
                     selectinload(UserProfiles.profile_hashtags)
                     .selectinload(ProfileHashtag.hashtag)
@@ -478,9 +488,9 @@ async def get_profiles_by_hashtag(
 
             # Применяем сортировку
             if sort_by == "newest":
-                query = query.order_by(desc(UserProfiles.created_at))  # Сортировка по новизне (дате создания)
+                query = query.order_by(desc(UserProfiles.created_at))
             elif sort_by == "popularity":
-                query = query.order_by(desc(UserProfiles.followers_count))  # Сортировка по популярности (количеству подписчиков)
+                query = query.order_by(desc(UserProfiles.followers_count))
 
             # Пагинация
             offset = (page - 1) * per_page
@@ -490,7 +500,6 @@ async def get_profiles_by_hashtag(
             result = await db.execute(query)
             profiles = result.scalars().all()
 
-            # Логируем количество найденных профилей
             logger.info(f"Найдено профилей: {len(profiles)}")
 
             # Получаем общее количество профилей
@@ -499,17 +508,15 @@ async def get_profiles_by_hashtag(
                 .select_from(UserProfiles)
                 .join(UserProfiles.profile_hashtags)
                 .join(ProfileHashtag.hashtag)
-                .filter(Hashtag.tag.ilike(hashtag))
+                .filter(Hashtag.tag.in_(existing_hashtags))
             )
             total = (await db.execute(total_query)).scalar()
 
-            # Логируем общее количество профилей
             logger.info(f"Общее количество профилей: {total}")
 
             # Формируем данные профилей для ответа
-            profiles_data = []
-            for profile in profiles:
-                profile_data = {
+            profiles_data = [
+                {
                     "id": profile.id,
                     "name": profile.name,
                     "user_logo_url": profile.user_logo_url,
@@ -521,12 +528,13 @@ async def get_profiles_by_hashtag(
                     "is_in_mlm": profile.is_in_mlm,
                     "adress": profile.adress,
                     "city": profile.city,
-                    "coordinates": await process_coordinates_for_response(profile.coordinates),  # Обработка координат
+                    "coordinates": await process_coordinates_for_response(profile.coordinates),
                     "followers_count": profile.followers_count,
-                    "created_at": await datetime_to_str(profile.created_at),  # Преобразование даты в строку
-                    "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],  # Хэштеги текущего профиля
+                    "created_at": await datetime_to_str(profile.created_at),
+                    "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
                 }
-                profiles_data.append(profile_data)
+                for profile in profiles
+            ]
 
             # Формируем ответ
             response_data = {
@@ -536,7 +544,7 @@ async def get_profiles_by_hashtag(
                 "profiles": profiles_data,
             }
 
-            # Сохраняем данные в кэш с TTL в 2 часа
+            # Сохраняем данные в кэш
             await redis_client.setex(cache_key, timedelta(hours=2), json.dumps(response_data))
             logger.info(f"Данные сохранены в кэш для ключа {cache_key}.")
 
