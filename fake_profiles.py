@@ -49,7 +49,7 @@ async def generate_user_profile(session: AsyncSession, full_profile=True, with_c
     if with_coordinates:
         num_points = random.randint(2, 5)
         coordinates = [(random.uniform(-180, 180), random.uniform(-90, 90)) for _ in range(num_points)]
-        points = [Point(coord[1], coord[0]) for coord in coordinates]
+        points = [Point(coord[0], coord[1]) for coord in coordinates]
         multi_point = MultiPoint(points)
         profile_data["coordinates"] = str(multi_point)
 

@@ -3,19 +3,22 @@ import shutil
 import aiofiles
 import hashlib
 from uuid import uuid4
-from fastapi import UploadFile, HTTPException
+from fastapi import UploadFile, HTTPException, status
 from geoalchemy2.shape import to_shape
+from shapely.wkb import loads as wkb_loads
 from shapely.geometry import Point, MultiPoint
+from geoalchemy2 import Geography, Geometry
+from geoalchemy2.functions import ST_SetSRID, ST_MakePoint, ST_DWithin
 from typing import Optional, List, Union
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload, subqueryload, selectinload
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, bindparam, Integer
 
 from models import UserProfiles, Hashtag, ProfileHashtag, User
 from database import get_db_session_for_worker
-from utils import process_coordinates_for_response, datetime_to_str, get_file_size
+from utils import process_coordinates_for_response, datetime_to_str, get_file_size, calculate_distance
 
 from logging_config import get_logger
 
@@ -442,4 +445,104 @@ async def get_profile_by_username(username: str):
         logger.error(f"Ошибка при получении профиля для имени {username}: {e}")
         raise HTTPException(status_code=500, detail="Ошибка сервера при получении профиля.")
 
+
+# Получение профилей в радиусе N километров
+async def fetch_nearby_profiles(longitude: float, latitude: float, radius: int = 10000) -> List[dict]:
+    try:
+        if not isinstance(longitude, (int, float)) or not isinstance(latitude, (int, float)):
+            raise ValueError("Координаты должны быть числами.")
+
+        point = ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)
+        logger.info(f"Поиск профилей в радиусе {radius} м от точки: ({longitude}, {latitude})")
+
+        async with get_db_session_for_worker() as db:
+            query = (
+                select(UserProfiles)
+                .where(ST_DWithin(UserProfiles.coordinates, point, radius))
+                .options(selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag))
+            )
+
+            logger.debug(f"SQL запрос: {str(query.compile(compile_kwargs={'literal_binds': True}))}")
+            result = await db.execute(query)
+            profiles = result.scalars().all()
+
+            if not profiles:
+                logger.info("Нет профилей в радиусе.")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Нет профилей в радиусе")
+
+            profile_list = []
+
+            for profile in profiles:
+                try:
+                    if not profile.coordinates:
+                        logger.warning(f"Профиль {profile.id} не имеет координат.")
+                        continue
+
+                    # Преобразуем координаты в объект Shapely
+                    try:
+                        geometry = to_shape(profile.coordinates)  # Преобразуем WKB в Shapely
+                    except Exception as e:
+                        logger.error(f"Ошибка при преобразовании координат профиля {profile.id}: {str(e)}")
+                        continue
+
+                    logger.debug(f"Тип геометрии профиля {profile.id}: {geometry.geom_type}")
+                    points = []
+
+                    # Обработка геометрии
+                    if geometry.geom_type == "MultiPoint":
+                        points = list(geometry.geoms)  # Извлекаем все точки из MultiPoint
+                    elif geometry.geom_type == "Point":
+                        points = [geometry]  # Добавляем единственную точку
+                    else:
+                        logger.warning(
+                            f"Профиль {profile.id} имеет неподдерживаемый тип геометрии: {geometry.geom_type}")
+                        continue
+
+                    for point in points:
+                        profile_longitude = float(point.x)
+                        profile_latitude = float(point.y)
+
+                        # Логируем полученные координаты
+                        logger.debug(f"Координаты профиля {profile.id}: {profile_longitude}, {profile_latitude}")
+
+                        # Вычисляем расстояние
+                        distance = await calculate_distance(latitude, longitude, profile_latitude, profile_longitude)
+                        logger.info(f"Расстояние до точки профиля {profile.id}: {distance / 1000:.2f} км.")
+
+                        if distance <= radius:
+                            profile_data = {
+                                "id": profile.id,
+                                "name": profile.name,
+                                "user_logo_url": profile.user_logo_url,
+                                "video_url": profile.video_url,
+                                "preview_url": profile.preview_url,
+                                "activity_and_hobbies": profile.activity_and_hobbies,
+                                "is_moderated": profile.is_moderated,
+                                "is_incognito": profile.is_incognito,
+                                "is_in_mlm": profile.is_in_mlm,
+                                "adress": profile.adress,
+                                "city": profile.city,
+                                "coordinates": {
+                                    "longitude": profile_longitude,
+                                    "latitude": profile_latitude,
+                                },
+                                "followers_count": profile.followers_count,
+                                "created_at": await datetime_to_str(profile.created_at) if profile.created_at else None,
+                                "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
+                                "website_or_social": profile.website_or_social,
+                                "is_admin": profile.is_admin,
+                                "language": profile.language,
+                            }
+                            profile_list.append(profile_data)
+                            break
+                        else:
+                            logger.info(f"Точка профиля {profile.id} не попала в радиус.")
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке профиля {profile.id}: {str(e)}")
+
+            return profile_list
+
+    except Exception as e:
+        logger.error(f"Ошибка при выполнении поиска: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Ошибка при выполнении поиска.")
 

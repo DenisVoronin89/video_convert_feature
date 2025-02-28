@@ -37,7 +37,8 @@ from views import (
     get_profiles_by_city,
     get_all_profiles,
     get_profile_by_wallet_number,
-    get_profile_by_username
+    get_profile_by_username,
+    fetch_nearby_profiles
 )
 from schemas import FormData, TokenResponse, UserProfileResponse, UserResponse, is_valid_image, is_valid_video, serialize_form_data, validate_and_process_form
 from models import User, UserProfiles, Favorite, Hashtag, ProfileHashtag
@@ -52,7 +53,8 @@ from cashe import (
     cache_profiles_in_redis,
     get_profiles_by_hashtag,
     get_sorted_profiles,
-    get_cached_profiles
+    get_cached_profiles,
+    fetch_and_cache_profiles
 )
 from tokens import TokenData, create_tokens, verify_access_token
 from utils import delete_old_files_task, parse_coordinates, process_coordinates_for_response, datetime_to_str
@@ -94,13 +96,16 @@ async def start_scheduler():
     scheduler = AsyncIOScheduler()
 
     # Задача, которая выполняется каждые 45 секунд (слив каунтера звездочек и избранного из Редиски в БД)
-    # Вместо использования asyncio.run() вызываем саму асинхронную функцию
     # scheduler.add_job(sync_data_to_db, IntervalTrigger(seconds=45))
     # logger.info("Задача sync_data_to_db добавлена в расписание (каждые 45 секунд).")
 
     # Задача, которая выполняется каждую минуту (получаем в Редиску 50 профилей на отгрузку при входе в приложение)
     scheduler.add_job(get_sorted_profiles, IntervalTrigger(minutes=1))
     logger.info("Задача get_sorted_profiles добавлена в расписание (каждую минуту).")
+
+    # Задача, которая выполняется каждые 30 секунд (обновление профилей в Redis)
+    scheduler.add_job(fetch_and_cache_profiles, IntervalTrigger(seconds=30))
+    logger.info("Задача fetch_and_cache_profiles добавлена в расписание (каждые 30 секунд).")
 
     # Задача очистки временных файлов, выполняемая ежедневно в 00:00
     # scheduler.add_job(delete_old_files_task, CronTrigger(hour=0, minute=0, second=0))
@@ -931,42 +936,31 @@ async def get_profiles_by_hashtag_endpoint(
 
 
 # Эндпоинт получения профилей пользователей в радиусе 10 км от клиента
-@app.get("/profiles/nearby", response_model=List[UserProfileResponse])
+@app.get("/profiles/nearby")
 async def get_profiles_nearby(
-    latitude: float = Query(..., description="Широта пользователя"),
-    longitude: float = Query(..., description="Долгота пользователя"),
-    radius: int = Query(10000, description="Радиус поиска в метрах (по умолчанию 10 км)"),
-    db_session: AsyncSession = Depends(get_db_session)
+    longitude: float = Query(..., description="Долгота пользователя, например: -175", ge=-180, le=180),
+    latitude: float = Query(..., description="Широта пользователя, например: 85", ge=-90, le=90),
+    radius: int = Query(10000, description="Радиус поиска в метрах (по умолчанию 10 км)", ge=1)
 ):
     """
-    Эндпоинт для получения профилей в радиусе N метров от текущего местоположения пользователя.
+    Получает список профилей пользователей, находящихся в радиусе N метров от заданных координат.
+
+    Аргументы:
+        longitude (float): Долгота пользователя (обязательный параметр).
+        latitude (float): Широта пользователя (обязательный параметр).
+        radius (int): Радиус поиска в метрах (по умолчанию 10 км).
+
+    Возвращает:
+        list[dict]: Список профилей пользователей, соответствующих заданным критериям.
     """
     try:
-        # Формируем запрос с использованием geoalchemy2
-        query = (
-            select(UserProfiles)
-            .where(
-                ST_DWithin(
-                    UserProfiles.coordinates,  # Поле координат
-                    ST_MakePoint(longitude, latitude),  # Точка поиска
-                    radius  # Радиус в метрах
-                )
-            )
-        )
-        # Выполняем запрос
-        result = await db_session.execute(query)
-        profiles = result.scalars().all()
-
-        if not profiles:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Нет профилей в заданном радиусе"
-            )
-        return profiles
+        return await fetch_nearby_profiles(longitude, latitude, radius)
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Ошибка при выполнении поиска: {str(e)}"
+            detail=f"Ошибка при выполнении запроса: {str(e)}"
         )
 
 

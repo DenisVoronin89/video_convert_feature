@@ -16,6 +16,7 @@ from sqlalchemy.future import select
 from geoalchemy2.shape import to_shape
 from shapely.wkt import loads as wkt_loads
 from shapely.geometry import Point, MultiPoint
+from typing import List
 
 from logging_config import get_logger
 from database import get_db_session, get_db_session_for_worker
@@ -182,23 +183,30 @@ async def remove_from_favorites(user_id: int, profile_id: int):
 
 
 # Получение списка избранных из кэша
-async def get_favorites_from_cache(user_id: int):
+async def get_favorites_from_cache(user_id: int) -> List[dict]:
     """
-    Получение списка избранных из кэша.
+    Получение списка избранных из кэша и полной информации по каждому избранному профилю.
 
     :param user_id: ID пользователя.
-    :return: Список ID избранных профилей (или пустой список, если данных нет).
+    :return: Список профилей с полной информацией (или пустой список, если данных нет).
     """
     try:
+        # Получаем список ID избранных профилей из Redis
         favorites = await redis_client.smembers(f'favorites:{user_id}')
-        if favorites:
-            result = [int(favorite) for favorite in favorites]
-            logger.info(f"Retrieved favorites for user {user_id}: {result}")
-            return result
-        logger.info(f"No favorites found in cache for user {user_id}.")
-        return []
+        if not favorites:
+            logger.info(f"Нет избранных профилей в кэше для пользователя {user_id}.")
+            return []
+
+        # Преобразуем ID из строк в числа
+        favorite_ids = [int(favorite) for favorite in favorites]
+        logger.info(f"Получены избранные профили для пользователя {user_id}: {favorite_ids}")
+
+        # Получаем полную информацию по каждому избранному профилю
+        profiles = await get_profiles_by_ids(favorite_ids)
+        return profiles
+
     except Exception as e:
-        logger.error(f"Failed to retrieve favorites for user {user_id}: {str(e)}")
+        logger.error(f"Ошибка при получении избранных профилей для пользователя {user_id}: {str(e)}")
         raise
 
 
@@ -537,3 +545,211 @@ async def get_profiles_by_hashtag(
     except Exception as e:
         logger.error(f"Ошибка получения профилей по хэштегу {hashtag}: {e}")
         raise HTTPException(status_code=500, detail="Ошибка сервера при получении профилей.")
+
+
+# Получение профилей и кэширование их в редис
+async def fetch_and_cache_profiles():
+    """
+    Загружает профили из базы данных, обрабатывает их и кэширует в Redis.
+    Удаляет из Redis профили, которые были удалены из базы данных.
+    Каждый профиль сохраняется в Redis под ключом `profile:{id}`.
+    """
+    try:
+        async with get_db_session_for_worker() as session:
+            # Формируем запрос с загрузкой хэштегов
+            query = (
+                select(UserProfiles)
+                .options(selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag))
+            )
+
+            # logger.debug(f"SQL запрос: {str(query.compile(compile_kwargs={'literal_binds': True}))}")
+
+            # Выполняем запрос
+            result = await session.execute(query)
+            profiles = result.scalars().all()
+
+            if not profiles:
+                logger.info("Нет профилей для кэширования.")
+                return
+
+            # Получаем список ID профилей из базы данных
+            db_profile_ids = {profile.id for profile in profiles}
+
+            # Получаем текущие ключи профилей из Redis
+            cached_profile_keys = await redis_client.keys("profile:*")
+            cached_profile_ids = {int(key.split(":")[1]) for key in cached_profile_keys}
+
+            # Находим профили, которые нужно удалить из Redis
+            profiles_to_delete = cached_profile_ids - db_profile_ids
+            if profiles_to_delete:
+                # logger.info(f"Найдено {len(profiles_to_delete)} профилей для удаления из Redis.")
+                # Удаляем профили из Redis
+                for profile_id in profiles_to_delete:
+                    await redis_client.delete(f"profile:{profile_id}")
+                # logger.info(f"Удалено {len(profiles_to_delete)} профилей из Redis.")
+
+            # Обрабатываем профили
+            processed_count = 0
+            for profile in profiles:
+                try:
+                    # Обрабатываем координаты
+                    coordinates = None
+                    if profile.coordinates:
+                        geometry = to_shape(profile.coordinates)  # Преобразуем WKB в Shapely
+                        if isinstance(geometry, Point):
+                            coordinates = {
+                                "longitude": float(geometry.x),
+                                "latitude": float(geometry.y),
+                            }
+                        elif isinstance(geometry, MultiPoint):
+                            # Берем первую точку из MultiPoint
+                            first_point = list(geometry.geoms)[0]
+                            coordinates = {
+                                "longitude": float(first_point.x),
+                                "latitude": float(first_point.y),
+                            }
+
+                    # Формируем данные профиля
+                    profile_data = {
+                        "id": profile.id,
+                        "name": profile.name,
+                        "user_logo_url": profile.user_logo_url,
+                        "video_url": profile.video_url,
+                        "preview_url": profile.preview_url,
+                        "activity_and_hobbies": profile.activity_and_hobbies,
+                        "is_moderated": profile.is_moderated,
+                        "is_incognito": profile.is_incognito,
+                        "is_in_mlm": profile.is_in_mlm,
+                        "adress": profile.adress,
+                        "city": profile.city,
+                        "coordinates": coordinates,
+                        "followers_count": profile.followers_count,
+                        "created_at": profile.created_at.isoformat() if profile.created_at else None,
+                        "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
+                        "website_or_social": profile.website_or_social,
+                        "is_admin": profile.is_admin,
+                        "language": profile.language,
+                    }
+
+                    # Кэшируем профиль в Redis под ключом `profile:{id}`
+                    await redis_client.setex(
+                        f"profile:{profile.id}",
+                        62,  # TTL (время жизни ключа)
+                        json.dumps(profile_data, default=str)
+                    )
+                    processed_count += 1
+                    # logger.debug(f"Профиль {profile.id} закэширован в Redis.")
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке профиля {profile.id}: {str(e)}")
+
+            logger.info(f"Успешно обработано и закэшировано {processed_count} профилей в Redis.")
+
+    except Exception as e:
+        logger.error(f"Ошибка при выполнении запроса и кэшировании профилей: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Ошибка при выполнении запроса и кэшировании профилей."
+        )
+
+
+# Получение профилей по id
+async def get_profiles_by_ids(profile_ids: List[int]) -> List[dict]:
+    """
+    Получает данные профилей по их ID из Redis или базы данных.
+    Если данные отсутствуют в Redis, они загружаются из базы.
+
+    Аргументы:
+        profile_ids (List[int]): Список ID профилей.
+
+    Возвращает:
+        List[dict]: Список данных профилей в формате JSON.
+    """
+    try:
+        # Проверяем, есть ли данные в Redis
+        profiles_from_redis = []
+        missing_ids = []
+
+        for profile_id in profile_ids:
+            profile_data = await redis_client.get(f"profile:{profile_id}")
+            if profile_data:
+                profiles_from_redis.append(json.loads(profile_data))
+            else:
+                missing_ids.append(profile_id)
+
+        # Если все данные найдены в Redis, возвращаем их
+        if not missing_ids:
+            logger.info(f"Все {len(profile_ids)} профилей найдены в Redis.")
+            return profiles_from_redis
+
+        # Если есть отсутствующие данные, загружаем их из базы
+        logger.info(f"Найдено {len(missing_ids)} профилей, отсутствующих в Redis. Загружаем из базы данных...")
+
+        async with get_db_session_for_worker() as session:
+            # Формируем запрос для загрузки отсутствующих профилей
+            query = (
+                select(UserProfiles)
+                .where(UserProfiles.id.in_(missing_ids))
+                .options(selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag))
+            )
+
+            result = await session.execute(query)
+            profiles_from_db = result.scalars().all()
+
+            # Обрабатываем профили из базы данных
+            processed_profiles = []
+            for profile in profiles_from_db:
+                try:
+                    # Обрабатываем координаты
+                    coordinates = None
+                    if profile.coordinates:
+                        geometry = to_shape(profile.coordinates)  # Преобразуем WKB в Shapely
+                        if isinstance(geometry, Point):
+                            coordinates = {
+                                "longitude": float(geometry.x),
+                                "latitude": float(geometry.y),
+                            }
+                        elif isinstance(geometry, MultiPoint):
+                            # Берем первую точку из MultiPoint
+                            first_point = list(geometry.geoms)[0]
+                            coordinates = {
+                                "longitude": float(first_point.x),
+                                "latitude": float(first_point.y),
+                            }
+
+                    # Формируем данные профиля
+                    profile_data = {
+                        "id": profile.id,
+                        "name": profile.name,
+                        "user_logo_url": profile.user_logo_url,
+                        "video_url": profile.video_url,
+                        "preview_url": profile.preview_url,
+                        "activity_and_hobbies": profile.activity_and_hobbies,
+                        "is_moderated": profile.is_moderated,
+                        "is_incognito": profile.is_incognito,
+                        "is_in_mlm": profile.is_in_mlm,
+                        "adress": profile.adress,
+                        "city": profile.city,
+                        "coordinates": coordinates,
+                        "followers_count": profile.followers_count,
+                        "created_at": profile.created_at.isoformat() if profile.created_at else None,
+                        "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
+                        "website_or_social": profile.website_or_social,
+                        "is_admin": profile.is_admin,
+                        "language": profile.language,
+                    }
+
+                    processed_profiles.append(profile_data)
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке профиля {profile.id}: {str(e)}")
+
+            # Объединяем данные из Redis и базы данных
+            all_profiles = profiles_from_redis + processed_profiles
+            logger.info(f"Успешно загружено {len(all_profiles)} профилей.")
+            return all_profiles
+
+    except Exception as e:
+        logger.error(f"Ошибка при получении профилей: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Ошибка при получении профилей."
+        )

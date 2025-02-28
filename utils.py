@@ -8,6 +8,7 @@ from apscheduler.triggers.cron import CronTrigger
 from shapely.geometry import Point, MultiPoint
 from typing import Optional, List, Union
 from geoalchemy2.shape import to_shape
+from math import radians, sin, cos, sqrt, atan2
 
 from logging_config import get_logger
 
@@ -100,7 +101,7 @@ async def parse_coordinates(coordinates):
     return None
 
 
-# Асинхронная функция для преобразования datetime в строку
+# Функция для преобразования datetime в строку
 async def datetime_to_str(value):
     if isinstance(value, datetime):
         return value.isoformat()  # Преобразуем в строку ISO 8601
@@ -130,3 +131,39 @@ async def process_coordinates_for_response(coordinates) -> Optional[Union[List[f
     except Exception as e:
         logger.error(f"Ошибка при обработке координат: {str(e)}")
         return None
+
+
+# Вычисление расстояния между точками (юзаем во вьюхе при отдаче точек в радиусе для проверки ответа)
+async def calculate_distance(lat1, lon1, lat2, lon2):
+    """
+    Вычисляет расстояние (в метрах) между двумя точками на Земле,
+    используя формулу Хаверсина и координаты в градусах.
+
+    :param lat1: Широта первой точки в градусах
+    :param lon1: Долгота первой точки в градусах
+    :param lat2: Широта второй точки в градусах
+    :param lon2: Долгота второй точки в градусах
+    :return: Расстояние между точками в метрах
+    """
+    # Радиус Земли в метрах
+    R = 6371000
+
+    # Преобразуем координаты из градусов в радианы
+    lat1_rad = radians(lat1)
+    lon1_rad = radians(lon1)
+    lat2_rad = radians(lat2)
+    lon2_rad = radians(lon2)
+
+    # Разница в координатах
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
+
+    # Применение формулы Хаверсина
+    a = sin(dlat / 2) ** 2 + cos(lat1_rad) * cos(lat2_rad) * sin(dlon / 2) ** 2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+
+    # Расстояние в метрах
+    distance = R * c
+    return distance
+
+

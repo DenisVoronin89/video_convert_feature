@@ -223,7 +223,7 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
             multi_point_wkt = None
             if coordinates:
                 # Преобразуем каждую пару координат в объект Point, а затем создаём MultiPoint
-                points = [Point(coord[1], coord[0]) for coord in coordinates]  # Долгота, Широта
+                points = [Point(coord[0], coord[1]) for coord in coordinates]  # Долгота, Широта
                 multi_point = MultiPoint(points)
                 # Преобразуем MultiPoint в строку WKT
                 multi_point_wkt = str(multi_point)

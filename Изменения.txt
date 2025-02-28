@@ -155,24 +155,24 @@ MIME-тип или расширение, но на самом деле явля�
       "123 Example Street, Example City",
       "456 Another Street, Another City"
     ],
-    "city": "Хуепутальск",
+    "city": "Вроттердам",
     "coordinates": [
       [
-        55.7830,
-        37.6500
+        55.7700,
+        37.6800
       ]
     ],
     "hashtags": [
-      "#Долбиться в очко"
+      "Сидеть на бутылке"
     ],
     "is_in_mlm": 1,
     "is_incognito": false,
-    "name": "Ебобо ЕЩЕ Какой",
-    "wallet_number": "0x53b9B8cfa28fA93f66Ad574F770D86EBC2d4755",
+    "name": "Петушиное ебало",
+    "wallet_number": "0x53b9B8cfa28fA73f91Ad574F630D86EBC2d4755",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/3034d80a-d7f0-47e0-986f-b001a92c0fe8_orig_cat.webp"
+    "image_path": "./image_temp/94994211-14c8-4296-a75d-6109f9d8906d_orig_cat.webp"
   }
 }
 
@@ -185,3 +185,13 @@ John Гнилой
 сколько строк кода?)
 
 find . -type f -name "*.py" -not -path "./venv/*" -not -path "./.venv/*" -not -path "./env/*" -not -path "./.env/*" | xargs wc -l
+
+
+
+(37.64, 55.761)
+
+
+
+(105.1312, 11.6338)
+
+"id": 155
