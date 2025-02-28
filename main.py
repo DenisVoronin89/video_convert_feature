@@ -38,7 +38,9 @@ from views import (
     get_all_profiles,
     get_profile_by_wallet_number,
     get_profile_by_username,
-    fetch_nearby_profiles
+    fetch_nearby_profiles,
+    grant_admin_rights,
+    get_profiles_for_moderation
 )
 from schemas import FormData, TokenResponse, UserProfileResponse, UserResponse, is_valid_image, is_valid_video, serialize_form_data, validate_and_process_form
 from models import User, UserProfiles, Favorite, Hashtag, ProfileHashtag
@@ -62,8 +64,7 @@ from utils import delete_old_files_task, parse_coordinates, process_coordinates_
 
 logger = get_logger()
 
-# Big Boss Royal Wallet Executor
-royal_wallet = "f789e481a037797a0625c7e76093f1da44c4dea77c3faf6f1a838a9e9fab529e"
+
 
 # Словарь необходимых директорий для работы (прилетает в функцию create_directories)
 directories_to_create = {
@@ -985,6 +986,60 @@ async def refresh_tokens_endpoint(refresh_token: str):
     except Exception as e:
         logger.error(f"Ошибка при генерации новых токенов: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Ошибка при генерации новых токенов")
+
+
+# Ендпоинт для выдачи прав администратора
+@app.post("/grant-admin-rights")
+async def grant_admin_rights_endpoint(request_wallet: str, target_wallet: str, _: TokenData = Depends(check_user_token)):
+    """
+    Ендпоинт для выдачи прав администратора.
+
+    Параметры:
+        request_wallet (str): Кошелек, с которого поступил запрос.
+        target_wallet (str): Кошелек, которому нужно дать права администратора.
+
+    Возвращает:
+        dict: Сообщение о результате операции.
+    """
+    try:
+        success = await grant_admin_rights(request_wallet, target_wallet)
+        if success:
+            return {"message": f"Права администратора успешно выданы для кошелька: {target_wallet}"}
+        else:
+            raise HTTPException(status_code=403, detail="Неавторизованный запрос.")
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Ошибка в ендпоинте grant-admin-rights: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка сервера.")
+
+
+# Ендпоинт для отправки профилей на модерацию
+@app.get("/moderation")
+async def moderation_endpoint(admin_wallet: str, page: int = 1):
+    """
+    Ендпоинт для получения профилей на модерацию.
+
+    Параметры:
+        admin_wallet (str): Кошелек администратора, который запрашивает профили.
+        page (int): Номер страницы (начинается с 1).
+
+    Возвращает:
+        dict: Словарь с данными о профилях, включая пагинацию и общее количество.
+
+    Исключения:
+        HTTPException: Если запрос не от администратора или произошла ошибка.
+    """
+    try:
+        # Просто вызываем функцию, сессия открывается внутри нее
+        return await get_profiles_for_moderation(admin_wallet, page)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Ошибка в ендпоинте /moderation: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка сервера.")
+
+
 
 
 

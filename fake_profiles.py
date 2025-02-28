@@ -9,6 +9,7 @@ from shapely.geometry import Point, MultiPoint
 from models import *  # Модели из твоего файла
 from database import get_db_session  # Асинхронная сессия из твоего модуля
 import asyncio
+import hashlib
 
 fake = Faker()
 
@@ -19,8 +20,11 @@ FIXED_HASHTAGS = [
 
 async def generate_user_profile(session: AsyncSession, full_profile=True, with_coordinates=False):
     # Генерация нового пользователя
+    raw_wallet_number = fake.unique.uuid4()  # Генерируем кошелек
+    hashed_wallet_number = hashlib.sha256(raw_wallet_number.encode()).hexdigest()  # Хэшируем кошелек
+
     user = User(
-        wallet_number=fake.unique.uuid4(),
+        wallet_number=hashed_wallet_number,  # Сохраняем хэшированный кошелек
         is_profile_created=True
     )
     session.add(user)

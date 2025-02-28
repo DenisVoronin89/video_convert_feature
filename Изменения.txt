@@ -197,3 +197,6 @@ find . -type f -name "*.py" -not -path "./venv/*" -not -path "./.venv/*" -not -p
 "id": 155
 
 спорт
+
+босс валет 0x789132f1324d186619bD4F2E57D424f776ec3cdB
+дать права 0x27b0B8cfa07fA98f36Ad674F679D36EBC7d4355

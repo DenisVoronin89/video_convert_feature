@@ -14,7 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload, subqueryload, selectinload
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import desc, func, bindparam, Integer
+from sqlalchemy import desc, func, bindparam, Integer, update
 
 from models import UserProfiles, Hashtag, ProfileHashtag, User
 from database import get_db_session_for_worker
@@ -23,6 +23,9 @@ from utils import process_coordinates_for_response, datetime_to_str, get_file_si
 from logging_config import get_logger
 
 logger = get_logger()
+
+# Big Boss Royal Wallet Executor  TODO В Енв файл добавить перед деплоем!!!
+ROYAL_WALLET = "f789e481a037797a0625c7e76093f1da44c4dea77c3faf6f1a838a9e9fab529e"
 
 
 async def create_directories(directories_to_create: dict) -> dict:
@@ -546,3 +549,179 @@ async def fetch_nearby_profiles(longitude: float, latitude: float, radius: int =
         logger.error(f"Ошибка при выполнении поиска: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Ошибка при выполнении поиска.")
 
+
+# Функция для выборки и отправки профилей на модерацию
+async def get_profiles_for_moderation(
+    admin_wallet: str, page: int
+) -> dict:
+    """
+    Получает профили для модерации, если запрос пришел от администратора.
+
+    Параметры:
+        admin_wallet (str): Кошелек администратора, который запрашивает профили.
+        page (int): Номер страницы (начинается с 1).
+
+    Возвращает:
+        dict: Словарь с данными о профилях, включая пагинацию и общее количество.
+
+    Исключения:
+        HTTPException: Если запрос не от администратора или произошла ошибка.
+    """
+    try:
+        async with get_db_session_for_worker() as session:
+            # Хэшируем кошелек администратора
+            hashed_admin_wallet = hashlib.sha256(admin_wallet.encode()).hexdigest()
+
+            # Находим пользователя по хэшированному кошельку
+            user_query = select(User).filter(User.wallet_number == hashed_admin_wallet)
+            user_result = await session.execute(user_query)
+            user = user_result.scalar()
+
+            if not user:
+                logger.warning(f"Пользователь с кошельком {admin_wallet} не найден.")
+                raise HTTPException(status_code=404, detail="Пользователь не найден.")
+
+            # Проверяем, что у пользователя есть профиль и флаг is_admin = True
+            admin_profile_query = (
+                select(UserProfiles)
+                .filter(UserProfiles.user_id == user.id, UserProfiles.is_admin == True)
+            )
+            admin_profile_result = await session.execute(admin_profile_query)
+            admin_profile = admin_profile_result.scalar()
+
+            if not admin_profile:
+                logger.warning(f"Пользователь {admin_wallet} не является администратором.")
+                raise HTTPException(status_code=403, detail="Только администраторы могут запрашивать профили для модерации.")
+
+            # Запрос для получения профилей на модерацию (is_moderated = False)
+            query = (
+                select(UserProfiles)
+                .filter(UserProfiles.is_moderated == False)
+                .options(
+                    selectinload(UserProfiles.user),  # Жадная загрузка User
+                    selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag)
+                )
+            )
+
+            # Пагинация: 25 профилей на страницу
+            per_page = 25
+            offset = (page - 1) * per_page
+            query = query.offset(offset).limit(per_page)
+
+            # Выполняем запрос
+            result = await session.execute(query)
+            profiles = result.scalars().all()
+
+            # Формируем данные для ответа
+            profiles_data = []
+            for profile in profiles:
+                coordinates = await process_coordinates_for_response(profile.coordinates)
+                profile_data = {
+                    "id": profile.id,
+                    "created_at": await datetime_to_str(profile.created_at),
+                    "name": profile.name,
+                    "user_logo_url": profile.user_logo_url,
+                    "video_url": profile.video_url,
+                    "preview_url": profile.preview_url,
+                    "activity_and_hobbies": profile.activity_and_hobbies,
+                    "is_moderated": profile.is_moderated,
+                    "is_incognito": profile.is_incognito,
+                    "is_in_mlm": profile.is_in_mlm,
+                    "adress": profile.adress,
+                    "coordinates": coordinates,
+                    "followers_count": profile.followers_count,
+                    "website_or_social": profile.website_or_social,
+                    "user": {
+                        "id": profile.user.id,
+                        "wallet_number": profile.user.wallet_number,  # Обращаемся к User.wallet_number
+                    },
+                    "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
+                }
+                profiles_data.append(profile_data)
+
+            # Получаем общее количество профилей на модерацию
+            total_query = select(func.count()).filter(UserProfiles.is_moderated == False)
+            total_result = await session.execute(total_query)
+            total = total_result.scalar()
+
+            logger.info(f"Получено {len(profiles)} профилей для модерации, страница {page}")
+            return {
+                "page": page,
+                "per_page": per_page,
+                "total": total,
+                "profiles": profiles_data,
+            }
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Ошибка при получении профилей для модерации: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка сервера, попробуйте позже.")
+
+
+# Даем права админа с кошелька босса
+async def grant_admin_rights(request_wallet: str, target_wallet: str) -> bool:
+    """
+    Дает права администратора пользователю, если запрос пришел с правильного кошелька.
+
+    Параметры:
+        request_wallet (str): Кошелек, с которого поступил запрос.
+        target_wallet (str): Кошелек, которому нужно дать права администратора.
+
+    Возвращает:
+        bool: True, если права успешно выданы, иначе False.
+
+    Исключения:
+        HTTPException: Если что-то пошло не так.
+    """
+    # Открываем сессию внутри функции
+    async with get_db_session_for_worker() as db:
+        try:
+            # Хэшируем кошелек, с которого пришел запрос
+            hashed_request_wallet = hashlib.sha256(request_wallet.encode()).hexdigest()
+
+            # Хэшируем кошелек целевого пользователя
+            hashed_target_wallet = hashlib.sha256(target_wallet.encode()).hexdigest()
+
+            # Проверяем, совпадает ли хэш кошелька, с которого пришел запрос, с royal_wallet
+            if hashed_request_wallet != ROYAL_WALLET:
+                logger.warning(f"Неавторизованный запрос от кошелька: {request_wallet}")
+                return False
+
+            # Находим пользователя по хэшированному кошельку в таблице User
+            result = await db.execute(
+                select(User).filter(User.wallet_number == hashed_target_wallet)
+            )
+            user = result.scalar_one_or_none()
+
+            if not user:
+                logger.warning(f"Пользователь с кошельком {target_wallet} не найден.")
+                return False
+
+            # Находим профиль пользователя по user_id в таблице UserProfiles
+            profile_result = await db.execute(
+                select(UserProfiles).filter(UserProfiles.user_id == user.id)
+            )
+            user_profile = profile_result.scalar_one_or_none()
+
+            if not user_profile:
+                logger.warning(f"Профиль для пользователя с кошельком {target_wallet} не найден.")
+                return False
+
+            # Обновляем флаг is_admin для целевого профиля
+            stmt = (
+                update(UserProfiles)
+                .where(UserProfiles.id == user_profile.id)
+                .values(is_admin=True)
+            )
+
+            await db.execute(stmt)
+            await db.commit()
+
+            logger.info(f"Права администратора успешно выданы для кошелька: {target_wallet}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Ошибка при выдаче прав администратора: {e}")
+            await db.rollback()
+            raise HTTPException(status_code=500, detail="Ошибка сервера при выдаче прав администратора.")

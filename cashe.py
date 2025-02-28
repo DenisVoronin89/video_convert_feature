@@ -9,7 +9,7 @@ from fastapi import HTTPException
 import redis.asyncio as redis
 from redis.exceptions import RedisError
 from typing import Optional
-from sqlalchemy import func, desc, or_
+from sqlalchemy import func, desc, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, subqueryload, selectinload
 from sqlalchemy.future import select
@@ -751,3 +751,5 @@ async def get_profiles_by_ids(profile_ids: List[int]) -> List[dict]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Ошибка при получении профилей."
         )
+
+
