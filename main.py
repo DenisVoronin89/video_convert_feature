@@ -40,7 +40,8 @@ from views import (
     get_profile_by_username,
     fetch_nearby_profiles,
     grant_admin_rights,
-    get_profiles_for_moderation
+    get_profiles_for_moderation,
+    moderate_profile
 )
 from schemas import FormData, TokenResponse, UserProfileResponse, UserResponse, is_valid_image, is_valid_video, serialize_form_data, validate_and_process_form
 from models import User, UserProfiles, Favorite, Hashtag, ProfileHashtag
@@ -58,7 +59,7 @@ from cashe import (
     get_cached_profiles,
     fetch_and_cache_profiles
 )
-from tokens import TokenData, create_tokens, verify_access_token
+from tokens import TokenData, create_tokens, verify_access_token, verify_refresh_token
 from utils import delete_old_files_task, parse_coordinates, process_coordinates_for_response, datetime_to_str
 
 
@@ -1040,7 +1041,35 @@ async def moderation_endpoint(admin_wallet: str, page: int = 1):
         raise HTTPException(status_code=500, detail="Ошибка сервера.")
 
 
+# Ендпоинт для модерации профиля
+@app.post("/moderate-profile")
+async def moderate_profile_endpoint(
+    admin_wallet: str,  # Нехэшированный кошелек администратора
+    profile_id: int,  # ID профиля для модерации
+    moderation: bool,  # True — профиль прошел модерацию, False — не прошел
+):
+    """
+    Ендпоинт для модерации профилей.
 
+    Параметры:
+        admin_wallet (str): Нехэшированный кошелек администратора.
+        profile_id (int): ID профиля для модерации.
+        moderation (bool): Результат модерации (True — одобрено, False — отклонено).
+
+    Возвращает:
+        dict: Сообщение о результате модерации.
+
+    Исключения:
+        HTTPException: Если запрос не от администратора или произошла ошибка.
+    """
+    try:
+        # Просто вызываем функцию, сессия открывается внутри нее
+        return await moderate_profile(admin_wallet, profile_id, moderation)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Ошибка в ендпоинте /moderate-profile: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка сервера, да.")
 
 
 # ЭНДПОИНТ ДЛЯ НАПОЛНЕНИЯ БД, ПОТОМ УДАЛИТЬ ЕГО И МОДУЛЬ ФЕЙК ПРОФИЛЕЙ!!!!!!!!!!!!!

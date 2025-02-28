@@ -725,3 +725,84 @@ async def grant_admin_rights(request_wallet: str, target_wallet: str) -> bool:
             logger.error(f"Ошибка при выдаче прав администратора: {e}")
             await db.rollback()
             raise HTTPException(status_code=500, detail="Ошибка сервера при выдаче прав администратора.")
+
+
+# Описание логики модерации
+async def moderate_profile(
+    admin_wallet: str,  # Нехэшированный кошелек администратора
+    profile_id: int,  # ID профиля для модерации
+    moderation: bool,  # True — профиль прошел модерацию, False — не прошел
+) -> dict:
+    """
+    Модерирует профиль пользователя.
+
+    Параметры:
+        admin_wallet (str): Нехэшированный кошелек администратора.
+        profile_id (int): ID профиля для модерации.
+        moderation (bool): Результат модерации (True — одобрено, False — отклонено).
+
+    Возвращает:
+        dict: Сообщение о результате модерации.
+
+    Исключения:
+        HTTPException: Если запрос не от администратора или произошла ошибка.
+    """
+    try:
+        # Хэшируем кошелек администратора
+        hashed_admin_wallet = hashlib.sha256(admin_wallet.encode()).hexdigest()
+
+        # Открываем сессию через get_db_session_for_worker
+        async with get_db_session_for_worker() as session:
+            # Проверяем, что запрос пришел от администратора
+            admin_query = select(UserProfiles).join(User).filter(
+                User.wallet_number == hashed_admin_wallet,
+                UserProfiles.is_admin == True
+            )
+            admin_result = await session.execute(admin_query)
+            admin_profile = admin_result.scalar()
+
+            if not admin_profile:
+                logger.warning(f"Неавторизованный от кошелька запрос : {admin_wallet}")
+                raise HTTPException(status_code=403, detail="Только администраторы могут модерировать профили, да.")
+
+            # Находим профиль для модерации по ID
+            target_profile_query = select(UserProfiles).filter(
+                UserProfiles.id == profile_id
+            )
+            target_profile_result = await session.execute(target_profile_query)
+            target_profile = target_profile_result.scalar()
+
+            if not target_profile:
+                logger.warning(f"Профиль с ID {profile_id} не найден, да.")
+                raise HTTPException(status_code=404, detail="Профиль не найден, да.")
+
+            # Обновляем профиль в зависимости от результата модерации
+            if moderation:
+                # Профиль прошел модерацию, да
+                stmt = (
+                    update(UserProfiles)
+                    .where(UserProfiles.id == profile_id)
+                    .values(is_moderated=True)
+                )
+                message = "Профиль успешно прошел модерацию, да."
+            else:
+                # Профиль не прошел модерацию, да
+                stmt = (
+                    update(UserProfiles)
+                    .where(UserProfiles.id == profile_id)
+                    .values(is_moderated=False, is_incognito=True)
+                )
+                message = "Профиль не прошел модерацию и теперь скрыт, да."
+
+            await session.execute(stmt)
+            await session.commit()
+
+            logger.info(f"Профиль с ID {profile_id} был обновлен: {message}")
+            return {"message": message}
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Ошибка при модерации профиля: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка сервера при модерации профиля, да.")
+
