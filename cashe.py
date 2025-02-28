@@ -9,7 +9,7 @@ from fastapi import HTTPException
 import redis.asyncio as redis
 from redis.exceptions import RedisError
 from typing import Optional
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, subqueryload, selectinload
 from sqlalchemy.future import select
@@ -431,7 +431,7 @@ async def get_cached_profiles(redis_client: redis.Redis):
 
 # Получение профилей по хэштегам с кэшированием и сортировкой
 async def get_profiles_by_hashtag(
-        hashtag: str, page: int, per_page: int, sort_by: Optional[str]
+    hashtag: str, page: int, per_page: int, sort_by: Optional[str]
 ):
     """
     Получает профили пользователей по хэштегу с кэшированием, сортировкой и пагинацией.
@@ -450,10 +450,8 @@ async def get_profiles_by_hashtag(
     Исключения:
         HTTPException: При ошибке запроса к базе данных или Redis.
     """
-    # Убираем решетку, если она есть
-    normalized_hashtag = hashtag.lstrip("#")
-    hashtag_with_hash = f"#{normalized_hashtag}"  # Вариант с решеткой
-    hashtag_without_hash = normalized_hashtag  # Вариант без решетки
+    # Убираем решетку и приводим к нижнему регистру сразу при получении хэштега
+    normalized_hashtag = hashtag.lstrip("#").lower()
 
     # Формируем ключ для кэша
     cache_key = f"profiles_hashtag_{normalized_hashtag}_page_{page}_per_page_{per_page}_sort_{sort_by}"
@@ -466,20 +464,12 @@ async def get_profiles_by_hashtag(
 
     try:
         async with get_db_session_for_worker() as db:
-            # Проверяем, какие версии хэштега есть в базе
-            existing_hashtags = await db.execute(
-                select(Hashtag.tag).where(
-                    Hashtag.tag.in_([hashtag_with_hash, hashtag_without_hash])
-                )
-            )
-            existing_hashtags = {tag[0] for tag in existing_hashtags.fetchall()}
-
-            # Условие для поиска
+            # Запрос к БД с поиском по точному совпадению нормализованного хэштега
             query = (
                 select(UserProfiles)
                 .join(UserProfiles.profile_hashtags)
                 .join(ProfileHashtag.hashtag)
-                .filter(Hashtag.tag.in_(existing_hashtags))  # Фильтр по существующим тегам
+                .filter(Hashtag.tag == normalized_hashtag)  # Точное совпадение
                 .options(
                     selectinload(UserProfiles.profile_hashtags)
                     .selectinload(ProfileHashtag.hashtag)
@@ -488,9 +478,9 @@ async def get_profiles_by_hashtag(
 
             # Применяем сортировку
             if sort_by == "newest":
-                query = query.order_by(desc(UserProfiles.created_at))
+                query = query.order_by(desc(UserProfiles.created_at))  # По новизне
             elif sort_by == "popularity":
-                query = query.order_by(desc(UserProfiles.followers_count))
+                query = query.order_by(desc(UserProfiles.followers_count))  # По популярности
 
             # Пагинация
             offset = (page - 1) * per_page
@@ -508,7 +498,7 @@ async def get_profiles_by_hashtag(
                 .select_from(UserProfiles)
                 .join(UserProfiles.profile_hashtags)
                 .join(ProfileHashtag.hashtag)
-                .filter(Hashtag.tag.in_(existing_hashtags))
+                .filter(Hashtag.tag == normalized_hashtag)  # Тот же фильтр
             )
             total = (await db.execute(total_query)).scalar()
 
@@ -544,7 +534,7 @@ async def get_profiles_by_hashtag(
                 "profiles": profiles_data,
             }
 
-            # Сохраняем данные в кэш
+            # Сохраняем данные в кэш с TTL в 2 часа
             await redis_client.setex(cache_key, timedelta(hours=2), json.dumps(response_data))
             logger.info(f"Данные сохранены в кэш для ключа {cache_key}.")
 

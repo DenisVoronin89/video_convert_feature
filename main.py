@@ -62,6 +62,9 @@ from utils import delete_old_files_task, parse_coordinates, process_coordinates_
 
 logger = get_logger()
 
+# Big Boss Royal Wallet Executor
+royal_wallet = "f789e481a037797a0625c7e76093f1da44c4dea77c3faf6f1a838a9e9fab529e"
+
 # Словарь необходимых директорий для работы (прилетает в функцию create_directories)
 directories_to_create = {
     "video_temp": "./video_temp",
@@ -660,7 +663,8 @@ async def create_or_update_user_profile(
 
     # Работа с хэштегами
     if form_data.hashtags:  # Проверяем, что хэштеги переданы
-        hashtags_list = [tag.strip().lower().lstrip("#") for tag in form_data.hashtags if tag.strip()]
+        hashtags_list = [tag.strip().lower().lstrip("#") for tag in form_data["hashtags"] if tag.strip()]
+
         if hashtags_list:
             # Поиск и проверка существующих хэштегов
             existing_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
