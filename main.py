@@ -782,7 +782,7 @@ async def get_favorites(user_id: int, redis_client: redis.Redis = Depends(get_re
     try:
         favorites_list = await get_favorites_from_cache(user_id)  # Используем функцию из кэш-модуля
         logger.info(f"Список избранного для пользователя {user_id}: {favorites_list}")
-        return {"id_пользователя": user_id, "избранное": favorites_list}
+        return {"id_пользователя": user_id, "favorites": favorites_list}
     except Exception as e:
         logger.error(f"Ошибка при получении избранного пользователя {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Ошибка сервера")
