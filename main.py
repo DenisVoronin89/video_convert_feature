@@ -57,7 +57,9 @@ from cashe import (
     get_profiles_by_hashtag,
     get_sorted_profiles,
     get_cached_profiles,
-    fetch_and_cache_profiles
+    fetch_and_cache_profiles,
+    get_all_profiles_from_cache,
+    get_profiles_by_ids
 )
 from tokens import TokenData, create_tokens, verify_access_token, verify_refresh_token
 from utils import delete_old_files_task, parse_coordinates, process_coordinates_for_response, datetime_to_str
@@ -95,26 +97,26 @@ app.add_middleware(
 app.mount("/user_logo", StaticFiles(directory="user_logo"), name="user_logo")
 
 
+# Установка зависимости для подключения Редиса, чтобы прокидывать потом в нужные эндпоинты
+async def get_redis_client(redis_client: redis.Redis = Depends(lambda: app.state.redis_client)) -> redis.Redis:
+    return redis_client
+
+
 # Настройка APScheduler для выполнения задач по расписанию
 async def start_scheduler():
     """Запуск планировщика задач."""
     scheduler = AsyncIOScheduler()
 
-    # Задача, которая выполняется каждые 45 секунд (слив каунтера звездочек и избранного из Редиски в БД)
-    # scheduler.add_job(sync_data_to_db, IntervalTrigger(seconds=45))
-    # logger.info("Задача sync_data_to_db добавлена в расписание (каждые 45 секунд).")
-
-    # Задача, которая выполняется каждую минуту (получаем в Редиску 50 профилей на отгрузку при входе в приложение)
-    scheduler.add_job(get_sorted_profiles, IntervalTrigger(minutes=1))
-    logger.info("Задача get_sorted_profiles добавлена в расписание (каждую минуту).")
+    # Получаем redis_client из состояния приложения
+    redis_client = app.state.redis_client
 
     # Задача, которая выполняется каждые 30 секунд (обновление профилей в Redis)
-    scheduler.add_job(fetch_and_cache_profiles, IntervalTrigger(seconds=30))
+    scheduler.add_job(
+        fetch_and_cache_profiles,  # Функция
+        IntervalTrigger(seconds=30),  # Триггер (интервал 30 секунд)
+        args=[redis_client]  # Аргументы для функции
+    )
     logger.info("Задача fetch_and_cache_profiles добавлена в расписание (каждые 30 секунд).")
-
-    # Задача очистки временных файлов, выполняемая ежедневно в 00:00
-    # scheduler.add_job(delete_old_files_task, CronTrigger(hour=0, minute=0, second=0))
-    # logger.info("Задача delete_old_files_task добавлена в расписание (ежедневно в 00:00).")
 
     # Старт планировщика
     scheduler.start()
@@ -174,9 +176,7 @@ async def shutdown():
     logger.info("Приложение завершило работу. Соединение с базой данных и Redis закрыты.")
 
 
-# Установка зависимости для подключения Редиса, чтобы прокидывать потом в нужные эндпоинты
-async def get_redis_client(redis_client: redis.Redis = Depends(lambda: app.state.redis_client)) -> redis.Redis:
-    return redis_client
+
 
 
 # Зависимость для проверки токена в заголовке
@@ -796,42 +796,15 @@ async def get_favorites(user_id: int, redis_client: redis.Redis = Depends(get_re
 
 # ЭНДПОИНТЫ ДЛЯ ОТДАЧИ ПРОФИЛЕЙ
 
-# Эндпоинт для получения первых 50 профилей
-@app.get("/profiles/main")
-async def get_profiles(
-    # session: AsyncSession = Depends(get_db_session),
-    redis_client: redis.Redis = Depends(get_redis_client)
-):
-    """
-    Получение первых 50 профилей. Сначала пытаемся получить их из кэша,
-    если кэша нет, загружаем из базы данных.
-    """
-    try:
-        # Проверяем, есть ли кэшированные профили
-        cached_profiles = await get_cached_profiles(redis_client)
-        if cached_profiles:
-            logger.info("Профили успешно возвращены клиенту из кэша.")
-            return JSONResponse(content=cached_profiles)
-
-        # Если кэш пуст, получаем профили из базы данных
-        profiles_from_db = await get_sorted_profiles()
-        logger.info("Профили успешно загружены из базы данных.")
-
-        return JSONResponse(content=profiles_from_db)
-
-    except HTTPException:
-        raise  # Пробрасываем HTTP-исключения без изменений
-    except Exception as e:
-        logger.error(f"Ошибка в эндпоинте /profiles/main: {str(e)}")
-        raise HTTPException(status_code=500, detail="Ошибка при получении профилей")
-
-
-# Эндпоинт для получения всех профилей
+# Эндпоинт для получения всех профилей (Сначала ныряем в Редис, если там пусто - берем данные из БД)
 @app.get("/profiles/all/")
 async def get_all_profiles_to_client(
     page: int = Query(1, description="Номер страницы (начинается с 1).", ge=1),  # Страница (по умолчанию 1)
     sort_by: Optional[str] = Query(None, description="Параметр сортировки. Возможные значения: newest, popularity.", enum=["newest", "popularity"]),
-    per_page: int = Query(25, description="Количество профилей на странице.", le=100)  # По умолчанию 25 профилей, максимум 100
+    per_page: int = Query(50, description="Количество профилей на странице.", le=100),  # По умолчанию 50 профилей, максимум 100)
+    user_id: Optional[int] = Query(None, description="ID авторизованного пользователя."),
+    ip_address: Optional[str] = Query(None, description="IP-адрес неавторизованного пользователя."),
+    redis_client: redis.Redis = Depends(get_redis_client)  # Зависимость для Redis
 ):
     """
     Получает все профили пользователей с пагинацией и сортировкой.
@@ -839,11 +812,24 @@ async def get_all_profiles_to_client(
     :param page: Номер страницы (начинается с 1).
     :param sort_by: Параметр сортировки (опционально). Возможные значения: "newest", "popularity".
     :param per_page: Количество профилей на странице (максимум 100).
+    :param user_id: ID авторизованного пользователя (обязательно, если не указан ip_address).
+    :param ip_address: IP-адрес неавторизованного пользователя (обязательно, если не указан user_id).
     :return: Словарь с данными о профилях, включая пагинацию и общее количество.
     """
+    # Проверяем, что передан хотя бы один из параметров (user_id или ip_address)
+    if user_id is None and ip_address is None:
+        raise HTTPException(status_code=400, detail="Необходимо указать либо user_id, либо ip_address.")
+
     try:
-        # Обращаемся к функции для получения профилей
-        profiles_data = await get_all_profiles(page, sort_by, per_page)
+        # Сначала пытаемся получить данные из кэша
+        cached_profiles = await get_all_profiles_from_cache(redis_client, page, sort_by, per_page, user_id, ip_address)
+        if cached_profiles["profiles"]:  # Если в кэше есть данные
+            logger.info("Профили получены из кэша.")
+            return cached_profiles
+
+        # Если в кэше ничего нет, обращаемся к базе данных
+        logger.info("Кэш пуст, запрашиваем данные из базы данных.")
+        profiles_data = await get_all_profiles(page, sort_by, per_page, user_id, ip_address)
 
         # Возвращаем данные
         return profiles_data
@@ -939,6 +925,24 @@ async def get_profiles_by_hashtag_endpoint(
         logger.error(f"Ошибка в эндпоинте /profiles/by-hashtag/: {str(e)}")
         raise HTTPException(status_code=500, detail="Ошибка при получении профилей")
 
+
+
+# Эндпоинт для получения профилей по ID
+@app.get("/profiles/", response_model=List[dict])
+async def get_profiles(profile_ids: List[int] = Query(..., description="Список ID профилей")):
+    """
+    Получает данные профилей по их ID. Сначала проверяет кеш (Redis), затем базу данных (БД).
+    """
+    try:
+        profiles = await get_profiles_by_ids(profile_ids)
+        return profiles
+    except HTTPException as http_e:
+        # Если была ошибка HTTP (например, 500), пробрасываем её дальше
+        raise http_e
+    except Exception as e:
+        # Логируем ошибку и возвращаем 500
+        logger.error(f"Ошибка в эндпоинте /profiles/: {str(e)}")
+        raise HTTPException(status_code=500, detail="Ошибка при получении профилей")
 
 
 # Эндпоинт получения профилей пользователей в радиусе 10 км от клиента

@@ -2,19 +2,22 @@ import os
 import shutil
 import aiofiles
 import hashlib
+import random
 from uuid import uuid4
-from fastapi import UploadFile, HTTPException, status
+from fastapi import UploadFile, HTTPException, status, Query
 from geoalchemy2.shape import to_shape
 from shapely.wkb import loads as wkb_loads
 from shapely.geometry import Point, MultiPoint
 from geoalchemy2 import Geography, Geometry
 from geoalchemy2.functions import ST_SetSRID, ST_MakePoint, ST_DWithin
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Set
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload, subqueryload, selectinload
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import desc, func, bindparam, Integer, update
+import redis.asyncio as redis
+from redis.exceptions import RedisError
 
 from models import UserProfiles, Hashtag, ProfileHashtag, User
 from database import get_db_session_for_worker
@@ -26,6 +29,9 @@ logger = get_logger()
 
 # Big Boss Royal Wallet Executor  TODO В Енв файл добавить перед деплоем!!!
 ROYAL_WALLET = "f789e481a037797a0625c7e76093f1da44c4dea77c3faf6f1a838a9e9fab529e"
+
+# Настраиваем соединение с Redis
+redis_client = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
 
 
 async def create_directories(directories_to_create: dict) -> dict:
@@ -159,84 +165,149 @@ async def move_image_to_user_logo(image_path: str, created_dirs: dict) -> str:
         raise HTTPException(status_code=500, detail="Не удалось переместить изображение в директорию user_logo")
 
 
-# Получение всех профилей без фильтров (не по алгоритму 10-10-10-10-10) с возможностью сортировки по новизне и популярности
+# Формируем ключи Redis для списка показанных профилей для юзера
+async def get_shown_profiles_key(user_id: Optional[int], ip_address: Optional[str]) -> str:
+    """
+    Возвращает ключ для Redis на основе user_id или ip_address.
+
+    :param user_id: ID авторизованного пользователя.
+    :param ip_address: IP-адрес неавторизованного пользователя.
+    :return: Ключ для Redis.
+    :raises ValueError: Если не указан ни user_id, ни ip_address.
+    """
+    if user_id:
+        return f"shown_profiles:{user_id}"
+    elif ip_address:
+        return f"shown_profiles:{ip_address}"
+    else:
+        raise ValueError("Необходим user_id или ip_address")
+
+
+# Получение списка показанных профилей из Redis
+async def get_shown_profiles(user_id: Optional[int], ip_address: Optional[str]) -> Set[int]:
+    """
+    Возвращает список показанных профилей для пользователя.
+
+    :param user_id: ID авторизованного пользователя.
+    :param ip_address: IP-адрес неавторизованного пользователя.
+    :return: Множество ID показанных профилей.
+    """
+    shown_profiles_key = await get_shown_profiles_key(user_id, ip_address)
+    shown_profiles = await redis_client.smembers(shown_profiles_key)
+    if shown_profiles:
+        return set(map(int, shown_profiles))
+    return set()
+
+
+# Добавление показанных профилей в Redis
+async def add_shown_profiles(user_id: Optional[int], ip_address: Optional[str], profile_ids: List[int]):
+    """
+    Добавляет показанные профили для пользователя.
+
+    :param user_id: ID авторизованного пользователя.
+    :param ip_address: IP-адрес неавторизованного пользователя.
+    :param profile_ids: Список ID профилей, которые нужно добавить.
+    """
+    shown_profiles_key = await get_shown_profiles_key(user_id, ip_address)
+    if profile_ids:
+        await redis_client.sadd(shown_profiles_key, *profile_ids)
+        await redis_client.expire(shown_profiles_key, 3600)  # TTL = 1 час
+
+
+# Получение всех профилей по тому же алгоритму или сортировке по новизне/популярности
 async def get_all_profiles(
     page: int,
-    sort_by: Optional[str],
-    per_page: int
+    sort_by: Optional[str] = Query(None, description="Параметр сортировки (newest, popularity)"),
+    per_page: int = Query(50, description="Количество профилей на страницу (по умолчанию 50)"),
+    user_id: Optional[int] = Query(None, description="ID авторизованного пользователя"),
+    ip_address: Optional[str] = Query(None, description="IP-адрес неавторизованного пользователя")
 ) -> dict:
     """
-    Получает все профили пользователей с пагинацией и сортировкой.
+    Получает все профили с пагинацией и сортировкой.
 
     :param page: Номер страницы (начинается с 1).
-    :param sort_by: Параметр сортировки (опционально). Возможные значения: "newest", "popularity".
-    :param per_page: Количество профилей на странице.
+    :param sort_by: Параметр сортировки (newest, popularity).
+    :param per_page: Количество профилей на страницу.
+    :param user_id: ID авторизованного пользователя.
+    :param ip_address: IP-адрес неавторизованного пользователя.
     :return: Словарь с данными о профилях, включая пагинацию и общее количество.
     :raises HTTPException: Если произошла ошибка при выполнении запроса.
     """
     try:
-        async with get_db_session_for_worker() as session:  # Управление сессией внутри функции
-            # Базовый запрос: исключаем приватные профили
-            query = select(UserProfiles).filter(UserProfiles.is_incognito == False)
+        async with get_db_session_for_worker() as session:
+            logger.info(f"Запрос профилей: page={page}, per_page={per_page}, sort_by={sort_by}, user_id={user_id}, ip_address={ip_address}")
 
-            logger.info(f"Запрос всех профилей, страница: {page}, сортировка: {sort_by}, профилей на странице: {per_page}")
+            # Получаем множество уже показанных профилей из Redis
+            shown_profile_ids = await get_shown_profiles(user_id, ip_address)
+            logger.info(f"Получены {len(shown_profile_ids)} ID показанных профилей: {list(shown_profile_ids)[:10]}...")  # Выводим первые 10
+
+            # Базовый запрос
+            base_query = (
+                select(UserProfiles)
+                .options(
+                    joinedload(UserProfiles.user),
+                    subqueryload(UserProfiles.profile_hashtags).subqueryload(ProfileHashtag.hashtag)
+                )
+                .filter(UserProfiles.is_incognito == False)
+            )
+
+            # Исключаем уже показанные профили
+            if shown_profile_ids:
+                base_query = base_query.filter(UserProfiles.id.notin_(list(shown_profile_ids)))
 
             # Применяем сортировку
             if sort_by == "newest":
-                query = query.order_by(desc(UserProfiles.created_at))  # Сортировка по дате создания
+                query = base_query.order_by(desc(UserProfiles.created_at))
+                logger.info(f"Сортировка по новизне, страница {page}")
             elif sort_by == "popularity":
-                query = query.order_by(desc(UserProfiles.followers_count))  # Сортировка по количеству подписчиков
+                query = base_query.order_by(desc(UserProfiles.followers_count))
+                logger.info(f"Сортировка по популярности, страница {page}")
+            else:
+                # Если сортировка не указана, возвращаем случайные профили
+                query = base_query.order_by(func.random())
+                logger.info(f"Случайная сортировка, страница {page}")
 
-            # Пагинация с учетом параметра per_page
+            # Пагинация
             offset = (page - 1) * per_page
             query = query.offset(offset).limit(per_page)
 
-            # Добавление жадной загрузки хэштегов
-            query = query.options(
-                selectinload(UserProfiles.user),
-                selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag)
-            )
+            # Выполняем запрос
+            profiles = (await session.execute(query)).scalars().unique().all()
+            logger.info(f"Найдено {len(profiles)} профилей для страницы {page}")
 
-            # Получаем результат
-            result = await session.execute(query)
-            profiles = result.scalars().all()
+            # Если профили найдены, сохраняем их ID в Redis
+            if profiles:
+                await add_shown_profiles(user_id, ip_address, [p.id for p in profiles])
 
             # Формируем данные для ответа
-            profiles_data = []
-            for profile in profiles:
-                # Обработка координат
-                coordinates = await process_coordinates_for_response(profile.coordinates)
-
-                # Формирование структуры профиля
-                profile_data = {
-                    "id": profile.id,
-                    "created_at": await datetime_to_str(profile.created_at),
-                    "name": profile.name,
-                    "user_logo_url": profile.user_logo_url,
-                    "video_url": profile.video_url,
-                    "preview_url": profile.preview_url,
-                    "activity_and_hobbies": profile.activity_and_hobbies,
-                    "is_moderated": profile.is_moderated,
-                    "is_incognito": profile.is_incognito,
-                    "is_in_mlm": profile.is_in_mlm,
-                    "adress": profile.adress,
-                    "coordinates": coordinates,
-                    "followers_count": profile.followers_count,
-                    "website_or_social": profile.website_or_social,
-                    "user": {
-                        "id": profile.user.id,
-                        "wallet_number": profile.user.wallet_number,
-                    },
-                    "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],  # Только хэштеги текущего профиля
-                }
-                profiles_data.append(profile_data)
+            profiles_data = [{
+                "id": profile.id,
+                "created_at": await datetime_to_str(profile.created_at),
+                "name": profile.name,
+                "user_logo_url": profile.user_logo_url,
+                "video_url": profile.video_url,
+                "preview_url": profile.preview_url,
+                "activity_and_hobbies": profile.activity_and_hobbies,
+                "is_moderated": profile.is_moderated,
+                "is_incognito": profile.is_incognito,
+                "is_in_mlm": profile.is_in_mlm,
+                "adress": profile.adress,
+                "coordinates": await process_coordinates_for_response(profile.coordinates),
+                "followers_count": profile.followers_count,
+                "website_or_social": profile.website_or_social,
+                "user": {
+                    "id": profile.user.id,
+                    "wallet_number": profile.user.wallet_number,
+                },
+                "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
+            } for profile in profiles]
 
             # Получаем общее количество профилей (без учета пагинации)
             total_query = select(func.count()).select_from(UserProfiles).filter(UserProfiles.is_incognito == False)
             total_result = await session.execute(total_query)
             total = total_result.scalar()
+            logger.info(f"Общее количество профилей (без учёта фильтров): {total}")
 
-            logger.info(f"Получено {len(profiles)} профилей для страницы {page}")
             return {
                 "page": page,
                 "per_page": per_page,
@@ -245,7 +316,7 @@ async def get_all_profiles(
             }
 
     except SQLAlchemyError as e:
-        logger.error(f"Ошибка выполнения запроса к базе данных: {e}")
+        logger.error(f"Ошибка запроса к базе: {e}")
         raise HTTPException(status_code=500, detail="Ошибка базы данных, попробуйте позже.")
 
     except Exception as e:
@@ -399,54 +470,58 @@ async def get_profile_by_wallet_number(wallet_number: str):
 
 
 # Получение пользователя по имени
-async def get_profile_by_username(username: str):
+async def get_profile_by_username(username: str) -> List[dict]:
     """
-    Логика получения профиля пользователя по имени (асинхронно).
+    Логика получения профилей пользователя по имени (асинхронно).
+    Поиск осуществляется по полному совпадению имени, но регистронезависимо.
 
-    :param username: Имя пользователя для поиска.
-    :return: Словарь с информацией о профиле.
-    :raises HTTPException: Если профиль не найден или произошла ошибка.
+    :param username: Имя пользователя для поиска (полное совпадение, регистронезависимо).
+    :return: Список словарей с информацией о профилях.
+    :raises HTTPException: Если произошла ошибка.
     """
     try:
         async with get_db_session_for_worker() as db:  # Открываем сессию внутри функции
-            # Поиск профиля по имени (регистронезависимый поиск!!!!!!)
-            query = select(UserProfiles).filter(UserProfiles.name.ilike(f"%{username}%")).options(
+            # Поиск профилей по полному совпадению имени (регистронезависимый поиск)
+            query = select(UserProfiles).filter(func.lower(UserProfiles.name) == func.lower(username)).options(
                 selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag)
             )
             result = await db.execute(query)
-            profile = result.scalars().first()
+            profiles = result.scalars().all()
 
-            if not profile:
-                logger.error(f"Профиль с именем {username} не найден.")
-                raise HTTPException(status_code=404, detail="Профиль с таким именем не найден.")
+            if not profiles:
+                logger.error(f"Профили с именем '{username}' (регистронезависимо) не найдены.")
+                raise HTTPException(status_code=404, detail="Профили с таким именем не найдены.")
 
-            # Формирование данных профиля для ответа
-            profile_data = {
-                "id": profile.id,
-                "name": profile.name,
-                "user_logo_url": profile.user_logo_url,
-                "video_url": profile.video_url,
-                "preview_url": profile.preview_url,
-                "activity_and_hobbies": profile.activity_and_hobbies,
-                "is_moderated": profile.is_moderated,
-                "is_incognito": profile.is_incognito,
-                "is_in_mlm": profile.is_in_mlm,
-                "adress": profile.adress,
-                "city": profile.city,
-                "coordinates": await process_coordinates_for_response(profile.coordinates),  # Обработка координат
-                "followers_count": profile.followers_count,
-                "created_at": await datetime_to_str(profile.created_at),  # Преобразование даты в строку
-                "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],  # Хэштеги текущего профиля
-            }
+            # Формирование данных профилей для ответа
+            profiles_data = []
+            for profile in profiles:
+                profile_data = {
+                    "id": profile.id,
+                    "name": profile.name,
+                    "user_logo_url": profile.user_logo_url,
+                    "video_url": profile.video_url,
+                    "preview_url": profile.preview_url,
+                    "activity_and_hobbies": profile.activity_and_hobbies,
+                    "is_moderated": profile.is_moderated,
+                    "is_incognito": profile.is_incognito,
+                    "is_in_mlm": profile.is_in_mlm,
+                    "adress": profile.adress,
+                    "city": profile.city,
+                    "coordinates": await process_coordinates_for_response(profile.coordinates),  # Обработка координат
+                    "followers_count": profile.followers_count,
+                    "created_at": await datetime_to_str(profile.created_at),  # Преобразование даты в строку
+                    "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],  # Хэштеги текущего профиля
+                }
+                profiles_data.append(profile_data)
 
-            logger.info(f"Профиль пользователя с именем {username} успешно найден.")
-            return profile_data
+            logger.info(f"Найдено {len(profiles)} профилей с именем '{username}' (регистронезависимо).")
+            return profiles_data
 
     except HTTPException as e:
         raise e
     except Exception as e:
-        logger.error(f"Ошибка при получении профиля для имени {username}: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка сервера при получении профиля.")
+        logger.error(f"Ошибка при получении профилей для имени '{username}': {e}")
+        raise HTTPException(status_code=500, detail="Ошибка сервера при получении профилей.")
 
 
 # Получение профилей в радиусе N километров
