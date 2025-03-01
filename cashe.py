@@ -20,7 +20,7 @@ from typing import List, Dict
 
 from logging_config import get_logger
 from database import get_db_session, get_db_session_for_worker
-from models import UserProfiles, Favorite, Hashtag, ProfileHashtag
+from models import UserProfiles, Favorite, Hashtag, ProfileHashtag, User
 from utils import datetime_to_str, process_coordinates_for_response
 from views import get_shown_profiles_key, get_shown_profiles, add_shown_profiles
 
@@ -211,62 +211,81 @@ async def get_favorites_from_cache(user_id: int) -> List[dict]:
         raise
 
 
-# Функция для слива данных из Redis в БД
+# Функция для слива данных (счетчик подписчиков и избранное) из Redis в БД
 async def sync_data_to_db():
     """
     Синхронизирует данные из Redis в базу данных:
     - Обновляет счетчики подписчиков для профилей.
     - Добавляет новые связи "избранное" в базу данных.
+    - Удаляет записи из Redis, если юзер или профиль удалены в БД.
     """
     try:
         # Открываем сессию для работы с базой данных
         async with get_db_session_for_worker() as db:
 
-            # Получаем все ключи профилей из Redis (например: subscribers_count:1, subscribers_count:2, ... )
+            # Обновляем счетчики подписчиков
             profile_keys = await redis_client.keys('subscribers_count:*')
-
-            # Обновляем счетчики подписчиков для каждого профиля
             for profile_key in profile_keys:
-                # Убираем decode(), так как ключи уже являются строками
                 profile_id = int(profile_key.split(':')[-1])
                 subscribers_count = await redis_client.get(profile_key)
 
                 if subscribers_count:
-                    # Находим профиль по ID и обновляем количество подписчиков
+                    # Проверяем, существует ли профиль в БД
                     profile_stmt = await db.execute(select(UserProfiles).filter_by(id=profile_id))
                     profile = profile_stmt.scalar_one_or_none()
+
                     if profile:
+                        # Обновляем счетчик подписчиков
                         profile.followers_count = int(subscribers_count)
                         db.add(profile)
+                    else:
+                        # Если профиль удален в БД, удаляем запись из Redis
+                        await redis_client.delete(profile_key)
+                        logger.info(f"Профиль {profile_id} удален в БД. Запись {profile_key} удалена из Redis.")
 
-            # Получаем все ключи избранных профилей из Redis
+            # Обновляем избранное
             user_keys = await redis_client.keys('favorites:*')
-
-            # Обновляем избранное для каждого пользователя
             for user_key in user_keys:
-                # Убираем decode(), так как ключи уже являются строками
                 user_id = int(user_key.split(':')[-1])
                 favorite_profiles = await redis_client.smembers(user_key)
 
                 if favorite_profiles:
-                    for profile_id in favorite_profiles:
-                        profile_id = int(profile_id)
+                    # Проверяем, существует ли юзер в БД
+                    user_stmt = await db.execute(select(User).filter_by(id=user_id))
+                    user = user_stmt.scalar_one_or_none()
 
-                        # Проверяем, есть ли такая связь в базе данных
-                        exists_stmt = await db.execute(
-                            select(Favorite).filter_by(user_id=user_id, profile_id=profile_id)
-                        )
-                        exists = exists_stmt.scalar_one_or_none()
+                    if user:
+                        for profile_id in favorite_profiles:
+                            profile_id = int(profile_id)
 
-                        if not exists:
-                            # Добавляем новую связь "избранное"
-                            new_favorite = Favorite(user_id=user_id, profile_id=profile_id)
-                            db.add(new_favorite)
+                            # Проверяем, существует ли профиль в БД
+                            profile_stmt = await db.execute(select(UserProfiles).filter_by(id=profile_id))
+                            profile = profile_stmt.scalar_one_or_none()
+
+                            if profile:
+                                # Проверяем, есть ли такая связь в базе данных
+                                exists_stmt = await db.execute(
+                                    select(Favorite).filter_by(user_id=user_id, profile_id=profile_id)
+                                )
+                                exists = exists_stmt.scalar_one_or_none()
+
+                                if not exists:
+                                    # Добавляем новую связь "избранное"
+                                    new_favorite = Favorite(user_id=user_id, profile_id=profile_id)
+                                    db.add(new_favorite)
+                            else:
+                                # Если профиль удален в БД, удаляем его из избранного в Redis
+                                await redis_client.srem(user_key, profile_id)
+                                logger.info(f"Профиль {profile_id} удален в БД. Удален из избранного пользователя {user_id}.")
+                    else:
+                        # Если юзер удален в БД, удаляем его избранное из Redis
+                        await redis_client.delete(user_key)
+                        logger.info(f"Пользователь {user_id} удален в БД. Запись {user_key} удалена из Redis.")
 
             # Сохраняем все изменения в базе данных
             await db.commit()
 
-        logger.info("Данные успешно синхронизированы из кеша в базу данных.")
+        logger.info("Данные о избранном и счетчике подписчиков успешно синхронизированы из кеша в базу данных для всех пользователей.")
 
     except Exception as e:
         logger.error(f"Ошибка синхронизации данных из кеша в базу данных: {str(e)}")
@@ -775,15 +794,18 @@ async def get_profiles_from_cashe_by_sorting_algorithm(
                 if not profile.get("is_incognito", False) and profile.get("id") not in shown_profile_ids:
                     profiles.append(profile)
 
-        # Если все профили уже показаны, возвращаем сообщение
+        # Если все профили уже показаны, обнуляем сет просмотренных профилей
         if not profiles:
-            logger.info("Все профили уже показаны.")
+            logger.warning("Все профили уже показаны. Обнуляем сет просмотренных профилей.")
+            await redis_client.delete(f"shown_profiles:{user_id}:{ip_address}")  # Удаляем ключ показанных профилей
+
+            # Возвращаем сообщение на фронт
             return {
                 "page": page,
                 "per_page": per_page,
                 "total": 0,
                 "profiles": [],
-                "message": "Все профили просмотрены. Начните показ сначала."
+                "message": "Профили закончились. Начинаем показ снова."
             }
 
         # Разделяем профили на категории

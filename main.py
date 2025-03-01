@@ -62,11 +62,10 @@ from cashe import (
     get_profiles_by_ids
 )
 from tokens import TokenData, create_tokens, verify_access_token, verify_refresh_token
-from utils import delete_old_files_task, parse_coordinates, process_coordinates_for_response, datetime_to_str
+from utils import scheduled_cleanup_task, parse_coordinates, process_coordinates_for_response, datetime_to_str, clean_old_logs
 
 
 logger = get_logger()
-
 
 
 # Словарь необходимых директорий для работы (прилетает в функцию create_directories)
@@ -118,6 +117,30 @@ async def start_scheduler():
     )
     logger.info("Задача fetch_and_cache_profiles добавлена в расписание (каждые 30 секунд).")
 
+    # Задача, которая выполняется каждую минуту (синхронизация данных из Redis в БД)
+    scheduler.add_job(
+        sync_data_to_db,  # Функция
+        IntervalTrigger(minutes=1),  # Триггер (интервал 1 минута)
+    )
+    logger.info("Задача sync_data_to_db добавлена в расписание (каждую минуту).")
+
+    # Запуск очистки файлов каждый день в 00:00
+    scheduler.add_job(
+        scheduled_cleanup_task,
+        CronTrigger(hour=22, minute=10, second=0)
+    )
+    logger.info("Задача очистки временных файлов добавлена в расписание (каждый день в 00:00).")
+
+    # Очистка логов каждые 5 минут
+    scheduler.add_job(
+        clean_old_logs,
+        "interval",
+        minutes=5,
+        args=["video_service.log", 10],  # Очищаем логи старше 10 минут
+    )
+    logger.info("Задача очистки логов добавлена в расписание (каждые 5 минут).")
+
+
     # Старт планировщика
     scheduler.start()
     logger.info("Планировщик задач успешно запущен.")
@@ -165,7 +188,6 @@ async def startup():
         raise HTTPException(status_code=500, detail=f"Неизвестная ошибка: {str(e)}")
 
 
-
 @app.on_event("shutdown")
 async def shutdown():
     """Функция завершения работы приложения"""
@@ -174,9 +196,6 @@ async def shutdown():
     if redis_client:
         await redis_client.close()  # Закрыть соединение с Redis
     logger.info("Приложение завершило работу. Соединение с базой данных и Redis закрыты.")
-
-
-
 
 
 # Зависимость для проверки токена в заголовке
@@ -746,11 +765,11 @@ async def remove_from_favorites_and_decrement(
     try:
         remove_status = await remove_from_favorites(user_id=user_id, profile_id=profile_id)
         if remove_status.get("status") == "not_in_favorites":
-            return {"сообщение": f"Профиль {profile_id} не был в избранном"}
+            return {"сообщение": f"Профиль {profile_id} не был в избранном у пользователя{user_id}"}
 
         new_count = await decrement_subscribers_count(profile_id=profile_id)
         return {
-            "сообщение": f"Профиль {profile_id} удалён из избранного",
+            "сообщение": f"Профиль {profile_id} удалён из избранного у пользователя{user_id}",
             "новое количество подписчиков": new_count,
         }
     except Exception as e:

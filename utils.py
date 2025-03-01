@@ -2,6 +2,7 @@
 
 import os
 import time
+import asyncio
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -14,6 +15,7 @@ from logging_config import get_logger
 
 logger = get_logger()
 
+
 def get_file_size(file_path):
     """Получение размера файла"""
     try:
@@ -22,73 +24,63 @@ def get_file_size(file_path):
         raise RuntimeError(f"Не удалось получить размер файла {file_path}: {e}")
 
 
-async def delete_temp_files(temp_video_path, temp_image_path, converted_video_path, preview_path):
-    """Удаление временных файлов после завершения всех операций."""
+# Логика удаления старых файлов
+async def delete_old_files(directories):
+    """Асинхронное удаление временных файлов старше 48 часов в заданных директориях."""
     try:
         current_time = time.time()
+        total_deleted = 0  # Общее количество удалённых файлов
 
-        # Проверка и удаление файлов старше 48 часов
         def remove_file_if_old(file_path):
-            if file_path and os.path.exists(file_path):
+            """Проверяет возраст файла и удаляет, если он старше 48 часов."""
+            if os.path.exists(file_path) and os.path.isfile(file_path):
                 file_age = current_time - os.path.getmtime(file_path)
                 if file_age > 48 * 3600:  # 48 часов в секундах
                     os.remove(file_path)
-                    logger.info(f"Удален временный файл: {file_path}")
+                    return 1  # Возвращаем 1, если файл удалён
+            return 0  # Возвращаем 0, если файл не удалён
+
+        for directory in directories:
+            if os.path.exists(directory):
+                deleted_count = 0  # Количество удалённых файлов в текущей директории
+                for file_name in os.listdir(directory):
+                    file_path = os.path.join(directory, file_name)
+                    deleted_count += remove_file_if_old(file_path)
+
+                if deleted_count > 0:
+                    logger.info(f"В директории {directory} удалено {deleted_count} файлов.")
                 else:
-                    logger.info(f"Файл не удалён, так как он младше 48 часов: {file_path}")
+                    logger.info(f"В директории {directory} файлов для удаления не найдено.")
+                total_deleted += deleted_count
             else:
-                logger.warning(f"Файл не существует: {file_path}")
+                logger.warning(f"Директория не существует: {directory}")
 
-        # Проверка файлов на старость и удаление
-        remove_file_if_old(temp_video_path)
-        remove_file_if_old(temp_image_path)
-        remove_file_if_old(converted_video_path)
-        remove_file_if_old(preview_path)
-
-    except Exception as e:
-        logger.error(f"Ошибка при удалении временных файлов: {e}")
-
-
-def schedule_file_cleanup():
-    """Запланировать задачу удаления файлов каждый день в 00:00."""
-    try:
-        scheduler = AsyncIOScheduler()
-
-        # Запускать задачу каждый день в 00:00
-        scheduler.add_job(
-            delete_old_files_task,
-            CronTrigger(hour=0, minute=0, second=0)
-        )
-
-        logger.info("Задача удаления файлов запланирована на каждый день в 00:00")
-
-        # Старт планировщика
-        scheduler.start()
+        if total_deleted > 0:
+            logger.info(f"Все временные файлы старше 48 часов успешно удалены. Всего удалено: {total_deleted} файлов.")
+        else:
+            logger.info("Файлов для удаления не найдено.")
 
     except Exception as e:
-        logger.error(f"Ошибка при планировании задачи очистки файлов: {e}")
+        logger.error(f"Ошибка при удалении временных файлов: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Ошибка при удалении временных файлов")
 
 
-async def delete_old_files_task():
-    """Задача для удаления старых файлов"""
-    try:
-        # Пути файлов, которые нужно проверять
-        temp_video_path = "./video_temp/temp_video_file.mp4"
-        temp_image_path = "./video_temp/temp_image_file.jpg"
-        converted_video_path = "./video_temp/converted_video_file.webm"
-        preview_path = "./video_temp/preview_file.webm"
+# Задача для планировщика (удаление старых файлов)
+async def scheduled_cleanup_task():
+    """Асинхронная задача для удаления старых файлов."""
+    directories = [
+        "./video_temp/",
+        "./image_temp/",
+        "./output_video/",
+        "./output_preview/"
+    ]
 
-        logger.info("Запуск задачи удаления старых файлов.")
-
-        # Удаление временных файлов
-        await delete_temp_files(temp_video_path, temp_image_path, converted_video_path, preview_path)
-
-        logger.info("Задача удаления старых файлов завершена.")
-
-    except Exception as e:
-        logger.error(f"Ошибка при удалении старых файлов: {e}")
+    logger.info("Запуск задачи очистки временных файлов.")
+    await delete_old_files(directories)
+    logger.info("Задача очистки временных файлов завершена.")
 
 
+# Логика для парсинга координат из БД
 async def parse_coordinates(coordinates):
     """Функция для парсинга координат в WKT строку (Для сохранения в БД)"""
     if coordinates:
@@ -108,6 +100,7 @@ async def datetime_to_str(value):
     return value
 
 
+# Обработка координат для ответа
 async def process_coordinates_for_response(coordinates) -> Optional[Union[List[float], List[List[float]]]]:
     """
     Обрабатывает координаты профиля.
@@ -167,3 +160,34 @@ async def calculate_distance(lat1, lon1, lat2, lon2):
     return distance
 
 
+# Очистка старых логов
+async def clean_old_logs(log_file: str, max_age_minutes: int = 10):
+    """
+    Очищает логи старше указанного времени (в минутах).
+    """
+    try:
+        current_time = time.time()
+        max_age_seconds = max_age_minutes * 60
+
+        # Читаем все строки из файла
+        with open(log_file, "r") as file:
+            lines = file.readlines()
+
+        # Фильтруем строки, оставляя только те, которые моложе max_age_seconds
+        new_lines = []
+        for line in lines:
+            # Предполагаем, что каждая строка лога начинается с даты в формате:
+            # "2025-03-01 22:00:00,001 - INFO - ..."
+            log_time_str = line.split(" - ")[0]
+            log_time = time.mktime(time.strptime(log_time_str, "%Y-%m-%d %H:%M:%S,%f"))
+            if current_time - log_time <= max_age_seconds:
+                new_lines.append(line)
+
+        # Перезаписываем файл только актуальными строками
+        with open(log_file, "w") as file:
+            file.writelines(new_lines)
+
+        logger.info(f"Логи старше {max_age_minutes} минут удалены из файла {log_file}.")
+
+    except Exception as e:
+        logger.error(f"Ошибка при очистке логов: {e}", exc_info=True)
