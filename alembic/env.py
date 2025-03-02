@@ -1,53 +1,69 @@
-from logging.config import fileConfig
-from sqlalchemy.ext.asyncio import create_async_engine
-from alembic import context
 import asyncio
-import sys
-import os
+from logging.config import fileConfig
 
-# Добавляем путь к вашему проекту в sys.path
-sys.path.append(os.getcwd())
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection
+from alembic import context
 
-# Импортируем ваши модели и Base
-from models import *
-from database import DATABASE_URL
+# Импортируем Base и модели
+from models import Base  # Замени на правильный импорт
 
-# Конфигурация Alembic
+# Настройка логов Alembic
 config = context.config
+fileConfig(config.config_file_name)
 
-# Настройка логгера
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# Получаем URL базы данных из конфигурации Alembic
+db_url = config.get_main_option("sqlalchemy.url")
 
-# Указываем метаданные для миграций
+# Используем Base.metadata для target_metadata
 target_metadata = Base.metadata
 
-# Функция для запуска миграций в асинхронном режиме
+def include_object(object, name, type_, reflected, compare_to):
+    """
+    Функция для исключения системных таблиц.
+    """
+    # Игнорируем таблицы, которые не относятся к твоим моделям
+    if type_ == "table" and name in {"spatial_ref_sys", "layer", "topology"}:
+        return False
+    return True
+
 def run_migrations_offline():
-    """Запуск миграций в оффлайн-режиме."""
+    """
+    Запуск миграций в оффлайн-режиме.
+    """
     context.configure(
-        url=DATABASE_URL,
+        url=db_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,  # Исключаем системные таблицы
     )
 
     with context.begin_transaction():
         context.run_migrations()
 
 async def run_migrations_online():
-    """Запуск миграций в онлайн-режиме."""
-    connectable = create_async_engine(DATABASE_URL)
+    """
+    Запуск миграций в онлайн-режиме с использованием асинхронного движка.
+    """
+    connectable = create_async_engine(db_url)
 
     async with connectable.connect() as connection:
-        await connection.run_sync(
-            lambda sync_conn: context.configure(
-                connection=sync_conn, target_metadata=target_metadata
-            )
-        )
+        await connection.run_sync(do_run_migrations)
 
-        async with connection.begin():
-            await connection.run_sync(context.run_migrations)
+def do_run_migrations(connection: AsyncConnection):
+    """
+    Запуск миграций внутри асинхронного контекста.
+    """
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+        include_object=include_object,  # Исключаем системные таблицы
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
 
 if context.is_offline_mode():
     run_migrations_offline()

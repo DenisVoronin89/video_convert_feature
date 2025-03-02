@@ -3,14 +3,18 @@
     Описание логики актуализации данных в кэше Redis и актуализации данных в БД """
 
 import random
+import os
 from datetime import timedelta
 import json
-from fastapi import HTTPException
+import hashlib
+from fastapi import HTTPException, status
 import redis.asyncio as redis
+from pydantic import HttpUrl
 from redis.exceptions import RedisError
 from typing import Optional
 from sqlalchemy import func, desc, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import OperationalError, IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload, subqueryload, selectinload
 from sqlalchemy.future import select
 from geoalchemy2.shape import to_shape
@@ -21,8 +25,9 @@ from typing import List, Dict
 from logging_config import get_logger
 from database import get_db_session, get_db_session_for_worker
 from models import UserProfiles, Favorite, Hashtag, ProfileHashtag, User
-from utils import datetime_to_str, process_coordinates_for_response
-from views import get_shown_profiles_key, get_shown_profiles, add_shown_profiles
+from utils import datetime_to_str, process_coordinates_for_response, parse_coordinates
+from views import get_shown_profiles_key, get_shown_profiles, add_shown_profiles, move_image_to_user_logo
+from schemas import serialize_form_data, FormData
 
 
 logger = get_logger()
@@ -316,114 +321,6 @@ async def cache_profiles_in_redis(profiles):
     except Exception as e:
         logger.error(f"Ошибка при обработке и кэшировании профилей: {str(e)}")
         raise Exception("Не удалось закэшировать профили.") from e
-
-
-# Получение 50 профилей на первоначальную отдачу клиенту (ЛОГИ ЗАКОМЕНТИЛ БЕСЯТ)
-async def get_sorted_profiles():
-    """
-    Получение 50 профилей на первоначальную отдачу клиенту.
-    Профили выбираются по следующим критериям:
-    1. **Популярные профили**: 10 профилей с наибольшим количеством подписчиков (followers_count).
-    2. **Новые профили**: 10 последних созданных профилей (created_at).
-    3. **MLM-профили**: 10 профилей, у которых указано участие в MLM (is_in_mlm не равно None или 0).
-    4. **Случайные профили**: 10 случайных профилей (используется функция random()).
-    5. **Профили без видео**: 10 профилей, у которых отсутствует видео (video_url равно None).
-    Каждый профиль загружается с данными пользователя, хэштегами и координатами.
-    После выборки профили кешируются в Redis для быстрого доступа.
-    """
-    # logger.info("Запуск выборки профилей из базы данных.")
-
-    try:
-        async with get_db_session_for_worker() as session:
-            # Базовый запрос с загрузкой связанных данных
-            base_query = (
-                select(UserProfiles)
-                .options(
-                    joinedload(UserProfiles.user),
-                    subqueryload(UserProfiles.profile_hashtags).subqueryload(ProfileHashtag.hashtag)
-                )
-                .filter(UserProfiles.is_incognito == False)
-            )
-
-            # Выборки профилей по критериям
-            popular_profiles = (await session.execute(
-                base_query.order_by(UserProfiles.followers_count.desc()).limit(10)
-            )).scalars().unique().all()
-
-            new_profiles = (await session.execute(
-                base_query.order_by(UserProfiles.created_at.desc()).limit(10)
-            )).scalars().unique().all()
-
-            mlm_profiles = (await session.execute(
-                base_query.filter(UserProfiles.is_in_mlm.isnot(None), UserProfiles.is_in_mlm != 0).limit(10)
-            )).scalars().unique().all()
-
-            random_profiles = (await session.execute(
-                base_query.order_by(func.random()).limit(10)
-            )).scalars().unique().all()
-
-            no_video_profiles = (await session.execute(
-                base_query.filter(UserProfiles.video_url == None).limit(10)
-            )).scalars().unique().all()
-
-            # Объединяем профили в единый список
-            profiles = popular_profiles + new_profiles + mlm_profiles + random_profiles + no_video_profiles
-            logger.info(f"Выбрано и получено {len(profiles)} профилей.")
-
-            result = []
-
-            for profile in profiles:
-                # Собираем хэштеги только для текущего профиля
-                profile_hashtags = [
-                    ph.hashtag.tag for ph in profile.profile_hashtags if ph.hashtag
-                ]
-
-                # Обработка координат профиля
-                coordinates = None
-                if profile.coordinates:
-                    try:
-                        geometry = to_shape(profile.coordinates)
-                        if isinstance(geometry, Point):
-                            coordinates = [geometry.x, geometry.y]
-                        elif isinstance(geometry, MultiPoint):
-                            coordinates = [[point.x, point.y] for point in geometry.geoms]
-                        # logger.info(f"Координаты профиля {profile.id}: {coordinates}")
-                    except Exception as e:
-                        logger.error(f"Ошибка при обработке координат профиля {profile.id}: {str(e)}")
-
-                # Формирование структуры профиля
-                profile_data = {
-                    "id": profile.id,
-                    "created_at": await datetime_to_str(profile.created_at),
-                    "name": profile.name,
-                    "user_logo_url": profile.user_logo_url,
-                    "video_url": profile.video_url,
-                    "preview_url": profile.preview_url,
-                    "activity_and_hobbies": profile.activity_and_hobbies,
-                    "is_moderated": profile.is_moderated,
-                    "is_incognito": profile.is_incognito,
-                    "is_in_mlm": profile.is_in_mlm,
-                    "adress": profile.adress,
-                    "coordinates": coordinates,
-                    "followers_count": profile.followers_count,
-                    "website_or_social": profile.website_or_social,
-                    "user": {
-                        "id": profile.user.id,
-                        "wallet_number": profile.user.wallet_number,
-                    },
-                    "hashtags": profile_hashtags,  # Только хэштеги текущего профиля
-                }
-
-                # logger.info(f"Профиль {profile.id}: {profile_data}")
-                result.append(profile_data)
-
-            await cache_profiles_in_redis(result)
-            logger.info("Профили успешно закешированы в Redis.")
-            return result
-
-    except Exception as e:
-        logger.error(f"Ошибка при выборке профилей: {str(e)}")
-        raise
 
 
 # Получение кэшированных профилей из Redis
@@ -943,3 +840,221 @@ async def get_all_profiles_from_cache(
     except Exception as e:
         logger.error(f"Ошибка при получении профилей из кэша: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при получении профилей из кэша")
+
+
+
+# Сохранение профиля без видео
+async def save_profile_to_db_without_video(
+    form_data: FormData,
+    image_data: dict,
+    created_dirs: dict
+):
+    """
+    Сохраняет или обновляет профиль пользователя в базе данных без видео.
+
+    :param form_data: Данные формы.
+    :param image_data: Данные изображения.
+    """
+    try:
+        # Преобразование данных формы в словарь
+        form_data_dict = form_data.dict()
+
+        # Хэшируем номер кошелька
+        wallet_number = form_data_dict.get("wallet_number")
+        if not wallet_number:
+            raise ValueError("Номер кошелька не указан.")
+        hashed_wallet_number = hashlib.sha256(wallet_number.encode()).hexdigest()
+
+        # Сериализация данных формы (HttpUrl в строку)
+        form_data_dict = await serialize_form_data(form_data_dict)
+
+        # Лог полученных данных
+        logger.info(f"Получены данные профиля: {form_data_dict}")
+        logger.info(f"Получены данные о изображении: {image_data}")
+
+        # Получаем координаты из form_data_dict
+        coordinates = form_data_dict.get("coordinates")
+
+        # Преобразуем координаты в строку WKT, если они есть
+        multi_point_wkt = None
+        if coordinates:
+            multi_point_wkt = await parse_coordinates(coordinates)
+
+        # Извлечение путей к файлам из JSON
+        try:
+            image_path = image_data.get("image_path")
+
+            if not image_path:
+                raise ValueError("Путь к файлу не был найден в данных JSON.")
+
+            logger.info(f"Путь к изображению: {image_path}")
+
+        except Exception as e:
+            logger.error(f"Ошибка при извлечении путей из JSON: {str(e)}")
+            raise HTTPException(status_code=400, detail="Ошибка при извлечении путей из JSON.")
+
+        # Преобразование путей в абсолютные, если они относительные
+        absolute_image_path = os.path.abspath(image_path)
+
+        logger.info(f"Абсолютный путь к изображению: {absolute_image_path}")
+
+        # Проверка существования изображения
+        if not os.path.isfile(absolute_image_path):
+            logger.error(f"Путь к изображению не ведет к файлу: {absolute_image_path}")
+            raise HTTPException(status_code=400, detail="Указанный путь к изображению не ведет к файлу.")
+
+        # Перенос изображения в постоянную папку "user_logo"
+        try:
+            # Перенос изображения и получение пути
+            user_logo_path = await move_image_to_user_logo(absolute_image_path, created_dirs)
+            logger.info(f"Изображение успешно перемещено в постоянную папку: {user_logo_path}")
+        except Exception as e:
+            logger.error(f"Ошибка при перемещении изображения: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Ошибка при перемещении изображения: {str(e)}")
+
+        # Преобразование user_logo_path в строку, так как это объект HttpUrl
+        if isinstance(user_logo_path, HttpUrl):
+            user_logo_path = str(user_logo_path)
+
+        # Открываем сессию для работы с базой данных
+        async with get_db_session_for_worker() as session:
+            try:
+                # Ищем пользователя в БД
+                stmt = select(User).where(User.wallet_number == hashed_wallet_number)
+                result = await session.execute(stmt)
+                user = result.scalars().first()
+
+                if not user:
+                    logger.error(f"Пользователь с данным кошельком не найден.")
+                    raise HTTPException(status_code=400, detail="Пользователь с данным кошельком не найден.")
+
+                # Проверяем, есть ли уже профиль у пользователя
+                stmt = select(UserProfiles).where(UserProfiles.user_id == user.id)
+                result = await session.execute(stmt)
+                profile = result.scalars().first()
+
+                if profile:
+                    current_is_admin = profile.is_admin
+
+                    # Обновление данных профиля
+                    profile.name = form_data_dict.get("name")
+                    profile.website_or_social = form_data_dict.get("website_or_social")
+                    profile.activity_and_hobbies = form_data_dict.get("activity_hobbies") if form_data_dict.get("activity_hobbies") is not None else None
+                    profile.adress = form_data_dict.get("adress")
+                    profile.city = form_data_dict.get("city")
+                    profile.coordinates = multi_point_wkt
+                    profile.is_in_mlm = form_data_dict.get("is_in_mlm")
+                    profile.is_incognito = form_data_dict.get("is_incognito", False)
+                    profile.language = form_data_dict.get("language")
+                    profile.user_logo_url = user_logo_path  # Добавляем путь к логотипу
+                    profile.video_url = None  # Видео отсутствует
+                    profile.preview_url = None  # Превью отсутствует
+
+                    profile.is_admin = current_is_admin
+
+                    session.add(profile)
+                    logger.info(f"Обновлен профиль пользователя {user.id}, is_admin сохранен: {current_is_admin}")
+                else:
+                    # Создание нового профиля
+                    new_profile = UserProfiles(
+                        name=form_data_dict.get("name"),
+                        website_or_social=form_data_dict.get("website_or_social"),
+                        activity_and_hobbies=form_data_dict.get("activity_hobbies"),
+                        adress=form_data_dict.get("adress"),
+                        city=form_data_dict.get("city"),
+                        coordinates=multi_point_wkt,
+                        is_in_mlm=form_data_dict.get("is_in_mlm"),
+                        is_incognito=form_data_dict.get("is_incognito", False),
+                        is_moderated=False,
+                        is_admin=False,
+                        user_id=user.id,
+                        language=form_data_dict.get("language"),
+                        user_logo_url=user_logo_path,  # Добавляем путь к логотипу
+                        video_url=None,  # Видео отсутствует
+                        preview_url=None  # Превью отсутствует
+                    )
+
+                    user.is_profile_created = True
+
+                    session.add(new_profile)
+                    await session.flush()
+                    profile = new_profile
+                    logger.info(f"Создан профиль для пользователя {user.id}, флаг is_profile_created установлен в True")
+
+                # Работа с хэштегами
+                if form_data_dict.get("hashtags"):  # Проверяем, что хэштеги переданы
+                    hashtags_list = [tag.strip().lower().lstrip("#") for tag in form_data_dict["hashtags"] if tag.strip()]
+
+                    if hashtags_list:
+                        # Поиск и проверка существующих хэштегов
+                        existing_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
+                        existing_hashtags_result = await session.execute(existing_hashtags_stmt)
+                        existing_hashtags = {tag.tag: tag for tag in existing_hashtags_result.scalars().all()}
+
+                        # Список для хранения новых хэштегов
+                        new_hashtags = []
+
+                        for hashtag in hashtags_list:
+                            if hashtag not in existing_hashtags:
+                                # Если хэштег отсутствует - добавляем
+                                new_hashtag = Hashtag(tag=hashtag)
+                                session.add(new_hashtag)
+                                new_hashtags.append(new_hashtag)
+
+                        # Фиксируем новые хэштеги в базе данных
+                        await session.flush()
+
+                        # Теперь создаем связи между профилем и хэштегами
+                        for hashtag in hashtags_list:
+                            if hashtag not in existing_hashtags:
+                                # Находим новый хэштег в списке new_hashtags
+                                new_hashtag = next((h for h in new_hashtags if h.tag == hashtag), None)
+                                if new_hashtag:
+                                    # Добавление связи между профилем и новым хэштегом
+                                    profile_hashtag = ProfileHashtag(profile_id=profile.id, hashtag_id=new_hashtag.id)
+                                    session.add(profile_hashtag)
+                            else:
+                                # Привязка существующего хэштега к профилю через таблицу ProfileHashtag
+                                profile_hashtag = ProfileHashtag(profile_id=profile.id, hashtag_id=existing_hashtags[hashtag].id)
+                                session.add(profile_hashtag)
+
+                            logger.info(f"Хэштеги добавлены/обновлены для профиля пользователя {user.id}")
+
+                # Подтверждаем изменения в БД
+                await session.commit()
+                logger.info(f"Профиль успешно сохранен.")
+                return {
+                    "message": "Профиль успешно сохранен",
+                    "profile_id": profile.id  # Добавляем ID профиля
+                }
+
+            except OperationalError as e:
+                logger.warning(f"Ошибка базы данных (возможно, конфликт транзакций): {str(e)}")
+                await session.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Ошибка базы данных. Попробуйте позже."
+                )
+
+            except IntegrityError as e:
+                logger.error(f"Ошибка целостности данных: {str(e)}")
+                await session.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Ошибка целостности данных. Проверьте введенные данные."
+                )
+
+            except Exception as e:
+                logger.error(f"Непредвиденная ошибка: {str(e)}")
+                await session.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Непредвиденная ошибка. Попробуйте позже."
+                )
+
+    except Exception as e:
+        logger.error(f"Ошибка в функции save_profile_to_db_without_video: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Непредвиденная ошибка. Попробуйте позже."
+        )

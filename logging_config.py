@@ -1,12 +1,11 @@
 """ Модуль для настройки логирования работы приложения """
 
 import logging
-from logging.handlers import RotatingFileHandler
 import inspect
 
 # Настройка основного логгера
 log_level = logging.DEBUG
-log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')  # Формат для основных логов
 log_file = 'video_service.log'
 
 # Основной логгер
@@ -17,18 +16,14 @@ logger = logging.getLogger(__name__)
 logger.setLevel(log_level)
 logger.addHandler(file_handler)
 
-# Настройка логгера для ошибок
+# Логгер для ошибок
 error_logger = logging.getLogger("error_logger")
 error_logger.setLevel(logging.ERROR)
 
 # Обработчик для записи ошибок в отдельный файл
-error_handler = RotatingFileHandler(
-    "application_errors.log",
-    maxBytes=10 * 1024 * 1024,  # 10 MB
-    backupCount=5,  # Храним до 5 файлов с ошибками
-)
+error_handler = logging.FileHandler("application_errors.log")
 error_handler.setFormatter(logging.Formatter(
-    "%(asctime)s - %(levelname)s - %(module)s - %(funcName)s - Line %(lineno)d - %(message)s"
+    "%(asctime)s - %(levelname)s - %(message)s"  # Формат для ошибок
 ))
 error_logger.addHandler(error_handler)
 
@@ -36,28 +31,39 @@ def get_logger():
     """
     Возвращает конфигурированный логгер с расширенным функционалом.
     """
-    # Добавляем кастомный метод error к объекту логгера
-    def custom_error(logger, msg, *args, **kwargs):
+    def custom_error(msg, *args, **kwargs):
         """
         Кастомный метод для логирования ошибок с дополнительной информацией.
         """
-        # Получаем информацию о месте, где произошла ошибка
-        frame = inspect.currentframe().f_back
-        module_name = frame.f_globals['__name__']
-        func_name = frame.f_code.co_name
-        line_no = frame.f_lineno
+        # Получаем кадр стека, где произошла ошибка
+        frame = inspect.currentframe()
+        while frame:
+            # Пропускаем кадры, связанные с логгерами
+            if frame.f_code.co_name in ("get_logger", "custom_error"):
+                frame = frame.f_back
+                continue
+            # Останавливаемся на первом подходящем кадре
+            break
+
+        if frame:
+            module_name = frame.f_globals.get("__name__", "unknown")
+            func_name = frame.f_code.co_name
+            line_no = frame.f_lineno
+        else:
+            module_name = "unknown"
+            func_name = "unknown"
+            line_no = 0
 
         # Добавляем информацию о модуле, функции и строке
         msg = f"{msg}\nModule: {module_name}, Function: {func_name}, Line: {line_no}"
 
-        # Если есть информация о запросе, добавляем её
-        if 'request_info' in kwargs:
-            msg = f"{msg}\nRequest Info: {kwargs.pop('request_info')}"
+        # Логируем ошибку в video_service.log (основной логгер)
+        logger._log(logging.ERROR, msg, args, **kwargs)
 
-        # Логируем ошибку
-        error_logger.error(msg, *args, **kwargs)
+        # Дублируем ошибку в application_errors.log
+        error_logger._log(logging.ERROR, msg, args, **kwargs)
 
     # Привязываем кастомный метод к логгеру
-    logger.error = lambda msg, *args, **kwargs: custom_error(logger, msg, *args, **kwargs)
-    return logger
+    logger.error = custom_error
 
+    return logger

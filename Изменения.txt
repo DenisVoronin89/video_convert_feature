@@ -155,24 +155,24 @@ MIME-тип или расширение, но на самом деле явля�
       "123 Example Street, Example City",
       "456 Another Street, Another City"
     ],
-    "city": "Вроттердам",
+    "city": "Поппенгагген",
     "coordinates": [
       [
-        55.7700,
+        59.7700,
         37.6800
       ]
     ],
     "hashtags": [
-      "Сидеть на бутылке"
+      "Жрать гавно"
     ],
     "is_in_mlm": 1,
     "is_incognito": false,
-    "name": "Петушиное ебало",
-    "wallet_number": "0x53b9B8cfa28fA73f91Ad574F630D86EBC2d4755",
+    "name": "Гавноед",
+    "wallet_number": "0x95b9B8cfa39fA73f48Ad574F600D86EBC2d4753",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/94994211-14c8-4296-a75d-6109f9d8906d_orig_cat.webp"
+    "image_path": "./image_temp/9e3cc060-1821-46de-acf0-23c7472e36ac_orig_cat.webp"
   }
 }
 

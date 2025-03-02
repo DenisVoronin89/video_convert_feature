@@ -32,8 +32,8 @@ class UserProfiles(Base):
     name = Column(String(100), nullable=False)
     website_or_social = Column(String(255), nullable=True)
     user_logo_url = Column(String(255), nullable=False, unique=True)
-    video_url = Column(String(255), nullable=True, unique=True)
-    preview_url = Column(String(255), nullable=True, unique=True)
+    video_url = Column(String(255), nullable=True)
+    preview_url = Column(String(255), nullable=True)
     activity_and_hobbies = Column(String(500), nullable=True)
     is_moderated = Column(Boolean, default=True, nullable=False)
     is_incognito = Column(Boolean, default=False, nullable=False)
@@ -52,6 +52,13 @@ class UserProfiles(Base):
     user = relationship('User', back_populates='profile')
 
     favorited_by = relationship('Favorite', back_populates='profile', cascade="all, delete-orphan")
+
+    # Частичные индексы для video_url и preview_url
+    __table_args__ = (
+        Index('ix_user_profiles_video_url_unique', video_url, unique=True, postgresql_where=video_url.isnot(None)),
+        Index('ix_user_profiles_preview_url_unique', preview_url, unique=True, postgresql_where=preview_url.isnot(None)),
+    )
+
 
 
 # Таблица избранного

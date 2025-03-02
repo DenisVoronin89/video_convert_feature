@@ -85,7 +85,7 @@ async def parse_coordinates(coordinates):
     """Функция для парсинга координат в WKT строку (Для сохранения в БД)"""
     if coordinates:
         # Преобразуем каждую пару координат (долгота, широта) в объект Point
-        points = [Point(coord[1], coord[0]) for coord in coordinates]  # Долгота, Широта
+        points = [Point(coord[0], coord[1]) for coord in coordinates]  # Долгота, Широта
         # Создаем MultiPoint из всех точек
         multi_point = MultiPoint(points)
         # Преобразуем MultiPoint в строку WKT
@@ -164,6 +164,7 @@ async def calculate_distance(lat1, lon1, lat2, lon2):
 async def clean_old_logs(log_file: str, max_age_minutes: int = 10):
     """
     Очищает логи старше указанного времени (в минутах).
+    Удаляет строки, которые не соответствуют формату даты.
     """
     try:
         current_time = time.time()
@@ -173,21 +174,26 @@ async def clean_old_logs(log_file: str, max_age_minutes: int = 10):
         with open(log_file, "r") as file:
             lines = file.readlines()
 
-        # Фильтруем строки, оставляя только те, которые моложе max_age_seconds
+        # Фильтруем строки, оставляя только те, которые моложе max_age_seconds и соответствуют формату
         new_lines = []
         for line in lines:
-            # Предполагаем, что каждая строка лога начинается с даты в формате:
-            # "2025-03-01 22:00:00,001 - INFO - ..."
-            log_time_str = line.split(" - ")[0]
-            log_time = time.mktime(time.strptime(log_time_str, "%Y-%m-%d %H:%M:%S,%f"))
-            if current_time - log_time <= max_age_seconds:
-                new_lines.append(line)
+            # Проверяем, начинается ли строка с даты в формате "2025-03-01 22:00:00,001"
+            if " - " in line:
+                log_time_str = line.split(" - ")[0]
+                try:
+                    log_time = time.mktime(time.strptime(log_time_str, "%Y-%m-%d %H:%M:%S,%f"))
+                    if current_time - log_time <= max_age_seconds:
+                        new_lines.append(line)
+                except ValueError:
+                    # Если строка не соответствует формату, пропускаем её (не добавляем в new_lines)
+                    continue
 
         # Перезаписываем файл только актуальными строками
         with open(log_file, "w") as file:
             file.writelines(new_lines)
 
-        logger.info(f"Логи старше {max_age_minutes} минут удалены из файла {log_file}.")
+        logger.info(f"Логи старше {max_age_minutes} минут и строки с неправильным форматом удалены из файла {log_file}.")
 
     except Exception as e:
         logger.error(f"Ошибка при очистке логов: {e}", exc_info=True)
+

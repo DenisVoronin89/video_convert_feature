@@ -5,6 +5,7 @@
 
 import json
 import asyncio
+from datetime import datetime, timedelta
 from sqlalchemy.exc import SQLAlchemyError
 from database import get_db_session_for_worker
 from redis.asyncio import Redis
@@ -113,6 +114,9 @@ async def main():
 
     redis = Redis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
 
+    last_error_time = None  # Время последней ошибки
+    error_cooldown = timedelta(seconds=10)  # Задержка между логами об ошибках
+
     # Проверка доступности Redis
     try:
         await redis.ping()
@@ -136,8 +140,15 @@ async def main():
                         task_data = json.loads(message["data"])  # Декодировка данных задачи
                         await handle_task(task_data)
 
+
                 except Exception as e:
-                    logger.error(f"Ошибка при получении сообщения: {e}")
+                    current_time = datetime.now()
+
+                    # Логируем ошибку только если прошло больше error_cooldown с момента последней ошибки
+                    if last_error_time is None or (current_time - last_error_time) > error_cooldown:
+                        logger.error(f"Ошибка при получении сообщения: {e}")
+
+                        last_error_time = current_time  # Обновляем время последней ошибки
 
         except Exception as e:
             logger.error(f"Ошибка при подписке на канал: {e}")
