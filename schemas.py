@@ -96,7 +96,7 @@ async def validate_and_process_form(data: FormData):
         logger.info("Начало валидации и обработки данных формы.")
 
         # Проверка хэштегов на запрещенные слова
-        hashtag_check = await filter_badwords(data.hashtags)
+        hashtag_check = await filter_badwords(data.hashtags or [])
         if hashtag_check["has_invalid_words"]:
             invalid_words = ", ".join(hashtag_check["invalid_words"])
             logger.error(f"Хэштеги содержат запрещённые слова: {invalid_words}")

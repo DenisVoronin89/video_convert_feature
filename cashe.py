@@ -20,7 +20,7 @@ from sqlalchemy.future import select
 from geoalchemy2.shape import to_shape
 from shapely.wkt import loads as wkt_loads
 from shapely.geometry import Point, MultiPoint
-from typing import List, Dict
+from typing import List, Dict, Set
 
 from logging_config import get_logger
 from database import get_db_session, get_db_session_for_worker
@@ -34,6 +34,10 @@ logger = get_logger()
 
 # Настраиваем соединение с Redis
 redis_client = redis.Redis(host='redis', port=6379, db=0, decode_responses=True) # Надо ли этот тут?
+
+# Константы для TTL пользователей, пагинированных страниц с профилями, сортированных по новизне/популярности сетов (12 часов)
+CACHE_PROFILES_TTL_SEK = 43200
+
 
 # ЛОГИКА РАБОТЫ С ИЗБРАННЫМ
 
@@ -462,128 +466,6 @@ async def get_profiles_by_hashtag(
         raise HTTPException(status_code=500, detail="Ошибка сервера при получении профилей.")
 
 
-# Получение профилей и кэширование их в редис TODO не надо удалять ТТЛ ЖЕ еп!!!! Переделать
-async def fetch_and_cache_profiles(redis_client: redis.Redis):
-    """
-    Загружает профили из базы данных, обрабатывает их и кэширует в Redis.
-    Удаляет из Redis профили, которые были удалены из базы данных.
-    Каждый профиль сохраняется в Redis под ключом `profile:{id}`.
-    Также создает Sorted Sets для сортировки профилей по новизне и популярности.
-    """
-    try:
-        async with get_db_session_for_worker() as session:
-            # Формируем запрос с загрузкой хэштегов и данных пользователя
-            query = (
-                select(UserProfiles)
-                .options(
-                    selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag),
-                    selectinload(UserProfiles.user)  # Загружаем данные о пользователе
-                )
-            )
-
-            # Выполняем запрос
-            result = await session.execute(query)
-            profiles = result.scalars().all()
-
-            if not profiles:
-                logger.info("Нет профилей для кэширования.")
-                return
-
-            # Получаем список ID профилей из базы данных
-            db_profile_ids = {profile.id for profile in profiles}
-
-            # Получаем текущие ключи профилей из Redis
-            cached_profile_keys = await redis_client.keys("profile:*")
-            cached_profile_ids = {int(key.split(":")[1]) for key in cached_profile_keys}
-
-            # Находим профили, которые нужно удалить из Redis
-            profiles_to_delete = cached_profile_ids - db_profile_ids
-            if profiles_to_delete:
-                logger.info(f"Найдено {len(profiles_to_delete)} профилей для удаления из Redis.")
-                for profile_id in profiles_to_delete:
-                    await redis_client.delete(f"profile:{profile_id}")
-                    await redis_client.zrem("profiles:newest", profile_id)
-                    await redis_client.zrem("profiles:popularity", profile_id)
-                logger.info(f"Удалено {len(profiles_to_delete)} профилей из Redis.")
-
-            # Обрабатываем профили
-            processed_count = 0
-            for profile in profiles:
-                try:
-                    # Обрабатываем координаты
-                    coordinates = None
-                    if profile.coordinates:
-                        geometry = to_shape(profile.coordinates)  # Преобразуем WKB в Shapely
-                        if isinstance(geometry, Point):
-                            coordinates = {
-                                "longitude": float(geometry.x),
-                                "latitude": float(geometry.y),
-                            }
-                        elif isinstance(geometry, MultiPoint):
-                            first_point = list(geometry.geoms)[0]
-                            coordinates = {
-                                "longitude": float(first_point.x),
-                                "latitude": float(first_point.y),
-                            }
-
-                    # Получаем данные о пользователе
-                    user_data = {
-                        "id": profile.user.id if profile.user else None,
-                        "wallet_number": profile.user.wallet_number if profile.user else None,
-                    }
-
-                    # Формируем данные профиля
-                    profile_data = {
-                        "id": profile.id,
-                        "name": profile.name,
-                        "user_logo_url": profile.user_logo_url,
-                        "video_url": profile.video_url,
-                        "preview_url": profile.preview_url,
-                        "activity_and_hobbies": profile.activity_and_hobbies,
-                        "is_moderated": profile.is_moderated,
-                        "is_incognito": profile.is_incognito,
-                        "is_in_mlm": profile.is_in_mlm,
-                        "adress": profile.adress,
-                        "city": profile.city,
-                        "coordinates": coordinates,
-                        "followers_count": profile.followers_count,
-                        "created_at": profile.created_at.isoformat() if profile.created_at else None,
-                        "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
-                        "website_or_social": profile.website_or_social,
-                        "is_admin": profile.is_admin,
-                        "language": profile.language,
-                        "user": user_data,  # Добавлен блок данных о пользователе
-                    }
-
-                    # Кэшируем профиль в Redis под ключом `profile:{id}`
-                    await redis_client.setex(
-                        f"profile:{profile.id}",
-                        40,  # TTL (время жизни ключа)
-                        json.dumps(profile_data, default=str)
-                    )
-
-                    # Добавляем профиль в Sorted Sets для сортировки
-                    if profile.created_at:
-                        created_at_timestamp = int(profile.created_at.timestamp())
-                        await redis_client.zadd("profiles:newest", {profile.id: created_at_timestamp})
-                    if profile.followers_count:
-                        await redis_client.zadd("profiles:popularity", {profile.id: profile.followers_count})
-
-                    processed_count += 1
-                except Exception as e:
-                    logger.error(f"Ошибка при обработке профиля {profile.id}: {str(e)}")
-
-            logger.info(f"Успешно обработано и закэшировано {processed_count} профилей в Redis.")
-
-    except Exception as e:
-        logger.error(f"Ошибка при выполнении запроса и кэшировании профилей: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Ошибка при выполнении запроса и кэшировании профилей."
-        )
-
-
-
 # Получение профилей по id
 async def get_profiles_by_ids(profile_ids: List[int]) -> List[dict]:
     try:
@@ -638,209 +520,6 @@ async def get_profiles_by_ids(profile_ids: List[int]) -> List[dict]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Ошибка при получении профилей."
         )
-
-
-# Получение 50 профилей из Redis с пагинацией и сортировкой по 50 штук вываливаем (Для функции ниже)
-async def get_profiles_from_cashe_by_sorting_algorithm(
-    redis_client: redis.Redis,
-    page: int,
-    sort_by: Optional[str] = None,  # Параметр сортировки (newest, popularity)
-    per_page: int = 50,  # По умолчанию 50 профилей на страницу
-    user_id: Optional[int] = None,  # ID пользователя (опционально)
-    ip_address: Optional[str] = None  # IP-адрес (опционально)
-) -> Dict[str, any]:
-    """
-    Получает профили из Redis, разделенные по категориям, с пагинацией.
-
-    :param redis_client: Экземпляр клиента Redis.
-    :param page: Номер страницы (начинается с 1).
-    :param sort_by: Параметр сортировки (newest, popularity).
-    :param per_page: Количество профилей на странице (по умолчанию 50).
-    :param user_id: ID пользователя (опционально).
-    :param ip_address: IP-адрес пользователя (опционально).
-    :return: Словарь с данными о профилях, включая пагинацию и общее количество.
-    :raises HTTPException: Если произошла ошибка при получении данных из кэша.
-    """
-    try:
-        # Логируем параметры
-        logger.info(f"Вызов get_profiles_from_cashe_by_sorting_algorithm с параметрами: user_id={user_id}, ip_address={ip_address}")
-
-        # Получаем все ключи профилей из Redis
-        cached_profile_keys = await redis_client.keys("profile:*")
-        if not cached_profile_keys:
-            logger.warning("Кэш профилей пуст.")
-            return {
-                "page": page,
-                "per_page": per_page,
-                "total": 0,
-                "profiles": [],
-                "message": "Кэш профилей пуст."
-            }
-
-        # Получаем множество уже показанных профилей из Redis
-        shown_profile_ids = await get_shown_profiles(user_id, ip_address)  # Передаём user_id и ip_address
-        logger.info(f"Получены {len(shown_profile_ids)} ID показанных профилей: {list(shown_profile_ids)[:10]}...")
-
-        # Загружаем данные профилей из Redis
-        profiles = []
-        for key in cached_profile_keys:
-            profile_data = await redis_client.get(key)
-            if profile_data:
-                profile = json.loads(profile_data)
-                # Исключаем профили в режиме инкогнито и уже показанные
-                if not profile.get("is_incognito", False) and profile.get("id") not in shown_profile_ids:
-                    profiles.append(profile)
-
-        # Если все профили уже показаны, обнуляем сет просмотренных профилей
-        if not profiles:
-            logger.warning("Все профили уже показаны. Обнуляем сет просмотренных профилей.")
-            await redis_client.delete(f"shown_profiles:{user_id}:{ip_address}")  # Удаляем ключ показанных профилей
-
-            # Возвращаем сообщение на фронт
-            return {
-                "page": page,
-                "per_page": per_page,
-                "total": 0,
-                "profiles": [],
-                "message": "Профили закончились. Начинаем показ снова."
-            }
-
-        # Разделяем профили на категории
-        popular_profiles = sorted(profiles, key=lambda x: x.get("followers_count", 0), reverse=True)[:10]
-        new_profiles = sorted(profiles, key=lambda x: x.get("created_at", ""), reverse=True)[:10]
-        mlm_profiles = [p for p in profiles if p.get("is_in_mlm", False)][:10]
-        random_profiles = random.sample(profiles, min(10, len(profiles)))  # 10 случайных профилей
-        no_video_profiles = [p for p in profiles if not p.get("video_url")][:10]
-
-        # Объединяем профили в единый список
-        profiles = popular_profiles + new_profiles + mlm_profiles + random_profiles + no_video_profiles
-
-        # Убираем дубликаты
-        unique_profiles = list({p["id"]: p for p in profiles}.values())
-
-        # Пагинация
-        offset = (page - 1) * per_page
-        paginated_profiles = unique_profiles[offset:offset + per_page]
-
-        # Если не хватает профилей для текущей страницы, добавляем случайные из оставшихся
-        if len(paginated_profiles) < per_page:
-            remaining_profiles = [p for p in profiles if p["id"] not in {x["id"] for x in paginated_profiles}]
-            if remaining_profiles:
-                logger.info(f"Добавляем {per_page - len(paginated_profiles)} случайных профилей из оставшихся.")
-                paginated_profiles.extend(random.sample(remaining_profiles, min(per_page - len(paginated_profiles), len(remaining_profiles))))
-
-        # Сохраняем ID показанных профилей в Redis
-        if paginated_profiles:
-            await add_shown_profiles(user_id, ip_address, [p["id"] for p in paginated_profiles])  # Передаём user_id и ip_address
-
-        # Формируем данные для ответа
-        profiles_data = []
-        for profile in paginated_profiles:
-            profile_data = {
-                "id": profile.get("id"),
-                "created_at": profile.get("created_at"),
-                "name": profile.get("name"),
-                "user_logo_url": profile.get("user_logo_url"),
-                "video_url": profile.get("video_url"),
-                "preview_url": profile.get("preview_url"),
-                "activity_and_hobbies": profile.get("activity_and_hobbies"),
-                "is_moderated": profile.get("is_moderated", False),
-                "is_incognito": profile.get("is_incognito", False),
-                "is_in_mlm": profile.get("is_in_mlm", False),
-                "adress": profile.get("adress"),
-                "coordinates": profile.get("coordinates"),
-                "followers_count": profile.get("followers_count", 0),
-                "website_or_social": profile.get("website_or_social"),
-                "user": {
-                    "id": profile["user"].get("id"),
-                    "wallet_number": profile["user"].get("wallet_number"),
-                },
-                "hashtags": profile.get("hashtags", []),  # Только хэштеги текущего профиля
-            }
-            profiles_data.append(profile_data)
-
-        # Получаем общее количество профилей (без учета пагинации)
-        total = len(unique_profiles)
-
-        logger.info(f"Получено {len(paginated_profiles)} профилей для страницы {page}")
-        return {
-            "page": page,
-            "per_page": per_page,
-            "total": total,
-            "profiles": profiles_data,
-            "message": None if paginated_profiles else "Все профили просмотрены. Начните показ сначала."
-        }
-
-    except Exception as e:
-        logger.error(f"Ошибка при получении профилей из кэша: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка при получении профилей из кэша")
-
-
-# Получение всех профилей из Redis с пагинацией и сортировкой по 50 штук вываливаем
-async def get_all_profiles_from_cache(
-    redis_client: redis.Redis,
-    page: int,
-    sort_by: Optional[str] = None,  # Параметр сортировки (newest, popularity)
-    per_page: int = 50,  # По умолчанию 50 профилей на страницу
-    user_id: Optional[int] = None,  # ID пользователя (опционально)
-    ip_address: Optional[str] = None  # IP-адрес (опционально)
-) -> Dict[str, any]:
-    """
-    Получает профили из Redis с пагинацией и сортировкой.
-
-    :param redis_client: Экземпляр клиента Redis.
-    :param page: Номер страницы (начинается с 1).
-    :param sort_by: Параметр сортировки (опционально). Возможные значения: "newest", "popularity".
-    :param per_page: Количество профилей на странице (по умолчанию 50).
-    :param user_id: ID пользователя (опционально).
-    :param ip_address: IP-адрес пользователя (опционально).
-    :return: Словарь с данными о профилях, включая пагинацию и общее количество.
-    :raises HTTPException: Если произошла ошибка при выполнении запроса.
-    """
-    try:
-        # Логируем параметры
-        logger.info(f"Вызов get_all_profiles_from_cache с параметрами: user_id={user_id}, ip_address={ip_address}")
-
-        # Если сортировка не указана, возвращаем профили по категориям
-        if not sort_by:
-            return await get_profiles_from_cashe_by_sorting_algorithm(
-                redis_client=redis_client,
-                page=page,
-                per_page=per_page,
-                user_id=user_id,  # Явно передаём user_id
-                ip_address=ip_address  # Явно передаём ip_address
-            )
-
-        # Определяем ключ Sorted Set в зависимости от параметра сортировки
-        sorted_set_key = "profiles:newest" if sort_by == "newest" else "profiles:popularity"
-
-        # Получаем ID профилей из Sorted Set с учетом пагинации
-        offset = (page - 1) * per_page
-        end = offset + per_page - 1
-        profile_ids = await redis_client.zrevrange(sorted_set_key, offset, end)
-
-        # Получаем данные профилей
-        profiles = []
-        for profile_id in profile_ids:
-            profile_data = await redis_client.get(f"profile:{profile_id}")
-            if profile_data:
-                profiles.append(json.loads(profile_data))
-
-        # Получаем общее количество профилей в Sorted Set
-        total = await redis_client.zcard(sorted_set_key)
-
-        logger.info(f"Успешно получено {len(profiles)} профилей из Redis для страницы {page}")
-        return {
-            "page": page,
-            "per_page": per_page,
-            "total": total,
-            "profiles": profiles,
-        }
-
-    except Exception as e:
-        logger.error(f"Ошибка при получении профилей из кэша: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка при получении профилей из кэша")
-
 
 
 # Сохранение профиля без видео
@@ -1058,3 +737,387 @@ async def save_profile_to_db_without_video(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Непредвиденная ошибка. Попробуйте позже."
         )
+
+
+# ОТДАЧА ВСЕХ ПРОФИЛЕЙ И ПАГИНАЦИЯ
+
+# Функция для формирования страниц из закешированных профилей по алгоритму
+async def create_pages_from_cached_profiles(redis_client: redis.Redis) -> tuple[int, int]:
+    """
+    Формирует страницы по 50 профилей из закешированных данных в Redis.
+    Профили распределяются по страницам глобально, без привязки к пользователям.
+
+    :param redis_client: Клиент Redis.
+    :return: Кортеж (общее количество профилей, общее количество страниц).
+    """
+    try:
+        # Получаем все закешированные профили из Redis
+        cached_profile_keys = await redis_client.keys("profile:*")
+        all_profiles = []
+        for key in cached_profile_keys:
+            profile_data = await redis_client.get(key)
+            if profile_data:
+                all_profiles.append(json.loads(profile_data))
+        total_profiles = len(all_profiles)
+        logger.info(f"Всего профилей в кеше: {total_profiles}")
+
+        # Разделяем профили на категории
+        popular_profiles = sorted(all_profiles, key=lambda x: x.get("followers_count", 0), reverse=True)[:10]
+        new_profiles = sorted(all_profiles, key=lambda x: x.get("created_at", ""), reverse=True)[:10]
+        mlm_profiles = [p for p in all_profiles if p.get("is_in_mlm", False)][:10]
+        random_profiles = random.sample(all_profiles, min(10, len(all_profiles)))
+        no_video_profiles = [p for p in all_profiles if not p.get("video_url")][:10]
+
+        # Объединяем профили в единый список
+        profiles_to_show = popular_profiles + new_profiles + mlm_profiles + random_profiles + no_video_profiles
+
+        # Убираем дубликаты
+        unique_profiles = list({p["id"]: p for p in profiles_to_show}.values())
+        logger.info(f"Собрано профилей по алгоритму: {len(unique_profiles)}")
+
+        # Если уникальных профилей меньше 50, добавляем случайные из оставшихся
+        if len(unique_profiles) < 50:
+            remaining_profiles = [p for p in all_profiles if p["id"] not in {x["id"] for x in unique_profiles}]
+            if remaining_profiles:
+                logger.info(f"Добавляем {50 - len(unique_profiles)} случайных профилей из оставшихся.")
+                unique_profiles.extend(random.sample(remaining_profiles, min(50 - len(unique_profiles), len(remaining_profiles))))
+
+        # Разбиваем профили на страницы по 50 штук
+        page_size = 50
+        pages = [unique_profiles[i:i + page_size] for i in range(0, len(unique_profiles), page_size)]
+        total_pages = len(pages)
+        logger.info(f"Сформировано страниц по алгоритму: {total_pages}")
+
+        # Обрабатываем оставшиеся профили, которые не попали в первые страницы
+        remaining_profiles = [p for p in all_profiles if p["id"] not in {x["id"] for x in unique_profiles}]
+        if remaining_profiles:
+            logger.info(f"Собрано оставшихся профилей: {len(remaining_profiles)}")
+            remaining_pages = [remaining_profiles[i:i + page_size] for i in range(0, len(remaining_profiles), page_size)]
+            pages.extend(remaining_pages)
+            total_pages += len(remaining_pages)
+            logger.info(f"Добавлено страниц из оставшихся профилей: {len(remaining_pages)}")
+
+        # Если страниц нет, завершаем выполнение
+        if not pages:
+            logger.warning("Нет данных для формирования страниц.")
+            return total_profiles, 0
+
+        # Кешируем страницы в Redis с TTL 12 часов
+        for page_number, page_profiles in enumerate(pages, start=1):
+            cache_key = f"page_{page_number}"
+            try:
+                await redis_client.setex(
+                    cache_key,
+                    CACHE_PROFILES_TTL_SEK,  # Передаём секунды напрямую
+                    json.dumps(page_profiles)
+                )
+                # logger.info(f"Страница {page_number} закеширована в Redis под ключом {cache_key}.")
+            except redis.RedisError as e:
+                logger.error(f"Ошибка Redis при кешировании страницы {page_number}: {str(e)}")
+                raise
+
+        logger.info(f"В кэше размещено {total_pages} страниц.")
+        return total_profiles, total_pages
+
+    except Exception as e:
+        logger.error(f"Ошибка при формировании страниц: {e}")
+        raise
+
+
+# Получение профилей и кэширование их в редис
+async def fetch_and_cache_profiles(redis_client: redis.Redis) -> tuple[int, int]:
+    """
+    Загружает профили из базы данных, обрабатывает их и кэширует в Redis.
+    Удаляет из Redis профили, которые были удалены из базы данных.
+    Каждый профиль сохраняется в Redis под ключом `profile:{id}`.
+    Также создает Sorted Sets для сортировки профилей по новизне и популярности.
+    После кеширования профилей формирует страницы.
+    Запускается каждые 5 минут в фоновом процессе через планировщик.
+
+    :param redis_client: Клиент Redis.
+    :return: Кортеж (общее количество профилей, общее количество страниц).
+    """
+    try:
+        async with get_db_session_for_worker() as session:
+            # Формируем запрос с загрузкой хэштегов и данных пользователя
+            query = (
+                select(UserProfiles)
+                .options(
+                    selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag),
+                    selectinload(UserProfiles.user)  # Загружаем данные о пользователе
+                )
+            )
+
+            # Выполняем запрос
+            result = await session.execute(query)
+            profiles = result.scalars().all()
+
+            if not profiles:
+                logger.info("Нет профилей для кэширования.")
+                return 0, 0
+
+            # Получаем список ID профилей из базы данных
+            db_profile_ids = {profile.id for profile in profiles}
+
+            # Получаем текущие ключи профилей из Redis
+            cached_profile_keys = await redis_client.keys("profile:*")
+            cached_profile_ids = {int(key.split(":")[1]) for key in cached_profile_keys}
+
+            # Находим профили, которые нужно удалить из Redis
+            profiles_to_delete = cached_profile_ids - db_profile_ids
+            if profiles_to_delete:
+                logger.info(f"Найдено {len(profiles_to_delete)} профилей для удаления из Redis.")
+                for profile_id in profiles_to_delete:
+                    await redis_client.delete(f"profile:{profile_id}")
+                    await redis_client.zrem("profiles:newest", profile_id)
+                    await redis_client.zrem("profiles:popularity", profile_id)
+                logger.info(f"Удалено {len(profiles_to_delete)} профилей из Redis.")
+
+            # Обрабатываем профили
+            processed_count = 0
+            for profile in profiles:
+                try:
+                    # Обрабатываем координаты
+                    coordinates = None
+                    if profile.coordinates:
+                        geometry = to_shape(profile.coordinates)  # Преобразуем WKB в Shapely
+                        if isinstance(geometry, Point):
+                            coordinates = {
+                                "longitude": float(geometry.x),
+                                "latitude": float(geometry.y),
+                            }
+                        elif isinstance(geometry, MultiPoint):
+                            first_point = list(geometry.geoms)[0]
+                            coordinates = {
+                                "longitude": float(first_point.x),
+                                "latitude": float(first_point.y),
+                            }
+
+                    # Получаем данные о пользователе
+                    user_data = {
+                        "id": profile.user.id if profile.user else None,
+                        "wallet_number": profile.user.wallet_number if profile.user else None,
+                    }
+
+                    # Формируем данные профиля
+                    profile_data = {
+                        "id": profile.id,
+                        "name": profile.name,
+                        "user_logo_url": profile.user_logo_url,
+                        "video_url": profile.video_url,
+                        "preview_url": profile.preview_url,
+                        "activity_and_hobbies": profile.activity_and_hobbies,
+                        "is_moderated": profile.is_moderated,
+                        "is_incognito": profile.is_incognito,
+                        "is_in_mlm": profile.is_in_mlm,
+                        "adress": profile.adress,
+                        "city": profile.city,
+                        "coordinates": coordinates,
+                        "followers_count": profile.followers_count,
+                        "created_at": profile.created_at.isoformat() if profile.created_at else None,
+                        "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
+                        "website_or_social": profile.website_or_social,
+                        "is_admin": profile.is_admin,
+                        "language": profile.language,
+                        "user": user_data,  # Добавлен блок данных о пользователе
+                    }
+
+                    # Кэшируем профиль в Redis под ключом `profile:{id}`
+                    await redis_client.setex(
+                        f"profile:{profile.id}",
+                        int(timedelta(seconds=CACHE_PROFILES_TTL_SEK).total_seconds()),  # Преобразуем часы в секунды
+                        json.dumps(profile_data, default=str)
+                    )
+
+                    # Добавляем профиль в Sorted Sets для сортировки
+                    if profile.created_at:
+                        created_at_timestamp = int(profile.created_at.timestamp())
+                        await redis_client.zadd("profiles:newest", {profile.id: created_at_timestamp})
+                    if profile.followers_count:
+                        await redis_client.zadd("profiles:popularity", {profile.id: profile.followers_count})
+
+                    processed_count += 1
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке профиля {profile.id}: {str(e)}")
+
+            logger.info(f"Успешно обработано и закэшировано {processed_count} профилей в Redis.")
+
+            # После кеширования профилей формируем страницы
+            total_profiles, total_pages = await create_pages_from_cached_profiles(redis_client)
+            logger.info(f"Сформировано и закэшировано {total_pages} страниц из {total_profiles} профилей.")
+
+            return total_profiles, total_pages
+
+    except Exception as e:
+        logger.error(f"Ошибка при выполнении запроса и кэшировании профилей: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Ошибка при выполнении запроса и кэшировании профилей."
+        )
+
+
+# Функция для получения данных страницы из Redis
+async def get_page_data_from_cache(
+    page_number: int,
+    redis_client: redis.Redis,
+    total_profiles: int,
+    total_pages: int
+) -> Dict:
+    """
+    Возвращает данные страницы из Redis.
+    Если страница не существует, возвращает сообщение о завершении просмотра.
+
+    :param page_number: Номер страницы.
+    :param redis_client: Клиент Redis.
+    :param total_profiles: Общее количество профилей.
+    :param total_pages: Общее количество страниц.
+    :return: Данные страницы или сообщение о завершении.
+    """
+    try:
+        cache_key = f"page_{page_number}"
+        page_profiles = await redis_client.get(cache_key)
+
+        if not page_profiles:
+            logger.warning(f"Страница {page_number} не найдена в Redis.")
+            return {
+                "theme": "Макс, это для тебя корешок ^^",  # Сообщение на фронт
+                "page_number": page_number,
+                "total_profiles": total_profiles,
+                "total_pages": total_pages,
+                "message": "Страница не найдена.",
+                "profiles": [],
+            }
+
+        # Обновляем TTL ключа на 12 часов (передаём секунды напрямую)
+        await redis_client.expire(cache_key, CACHE_PROFILES_TTL_SEK)
+
+        profiles = json.loads(page_profiles)
+        logger.info(f"Получено {len(profiles)} профилей для страницы {page_number} из Redis.")
+
+        return {
+            "theme": "Макс, это для тебя корешок ^^",  # Сообщение на фронт
+            "page_number": page_number,
+            "total_profiles": total_profiles,
+            "total_pages": total_pages,
+            "message": f"Показаны профили {page_number * 50 - 49}-{page_number * 50} из {total_profiles}.",
+            "profiles": profiles,
+        }
+
+    except Exception as e:
+        logger.error(f"Ошибка при получении страницы {page_number} из Redis: {str(e)}")
+        raise
+
+
+# Функция для получения профилей из Редиски, если пришел запрос на сортировку пагинируем из сортированных списков
+async def get_all_profiles_by_page(
+    page: int = 1,  # Номер страницы
+    sort_by: Optional[str] = None,  # Параметр сортировки (newest или popularity)
+    redis_client: redis.Redis = None  # Клиент Redis
+) -> Dict:
+    """
+    Возвращает страницу с профилями, учитывая сортировку и пагинацию.
+
+    :param page: Номер страницы.
+    :param sort_by: Параметр сортировки (newest или popularity).
+    :param redis_client: Клиент Redis.
+    :return: Словарь с данными о профилях, включая пагинацию и общее количество.
+    """
+    try:
+        # Если передана сортировка, используем отсортированные списки
+        if sort_by:
+            sorted_set_key = f"profiles:{sort_by}"
+
+            # Получаем общее количество профилей в отсортированном списке
+            total_profiles = await redis_client.zcard(sorted_set_key)
+            if total_profiles == 0:
+                logger.warning(f"Нет профилей в отсортированном списке {sorted_set_key}.")
+                return {
+                    "theme": "Макс, это для тебя корешок ^^",  # Сообщение на фронт
+                    "page_number": page,
+                    "total_profiles": 0,
+                    "total_pages": 0,
+                    "message": "Профили просмотрены. Начните с первой страницы.",
+                    "profiles": [],
+                }
+
+            # Вычисляем смещение и лимит для пагинации
+            page_size = 50
+            offset = (page - 1) * page_size
+            end = offset + page_size - 1
+
+            # Проверяем, чтобы offset и end не выходили за пределы
+            if offset < 0 or end < 0 or offset >= total_profiles:
+                logger.warning(f"Некорректные значения offset={offset} или end={end} для страницы {page}.")
+                return {
+                    "theme": "Макс, это для тебя корешок ^^",  # Сообщение на фронт
+                    "page_number": page,
+                    "total_profiles": total_profiles,
+                    "total_pages": (total_profiles + page_size - 1) // page_size,
+                    "message": "Некорректная страница.",
+                    "profiles": [],
+                }
+
+            # Получаем ID профилей из отсортированного списка
+            profile_ids = await redis_client.zrange(sorted_set_key, offset, end)
+
+            # Получаем данные профилей по их ID
+            profiles = []
+            for profile_id in profile_ids:
+                profile_data = await redis_client.get(f"profile:{profile_id}")
+                if profile_data:
+                    try:
+                        profiles.append(json.loads(profile_data))
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Ошибка при декодировании профиля {profile_id}: {str(e)}")
+                        continue
+
+            # Вычисляем общее количество страниц
+            total_pages = (total_profiles + page_size - 1) // page_size
+
+            # Проверяем, есть ли профили на текущей странице
+            if not profiles:
+                logger.warning(f"Нет профилей на странице {page} в отсортированном списке {sorted_set_key}.")
+                return {
+                    "theme": "Макс, это для тебя корешок ^^",  # Сообщение на фронт
+                    "page_number": page,
+                    "total_profiles": total_profiles,
+                    "total_pages": total_pages,
+                    "message": "Профили просмотрены. Начните с первой страницы.",
+                    "profiles": [],
+                }
+
+            logger.info(f"Получено {len(profiles)} профилей для страницы {page} из отсортированного списка {sorted_set_key}.")
+
+            # Возвращаем данные
+            return {
+                "theme": "Макс, это для тебя корешок ^^",  # Сообщение на фронт
+                "page_number": page,
+                "total_profiles": total_profiles,
+                "total_pages": total_pages,
+                "message": f"Показаны профили {offset + 1}-{min(end + 1, total_profiles)} из {total_profiles}.",
+                "profiles": profiles,
+            }
+
+        # Если сортировка не передана, используем заранее сформированные страницы
+        # Получаем общее количество профилей и страниц
+        total_profiles, total_pages = await fetch_and_cache_profiles(redis_client)
+
+        # Логируем запрос
+        logger.info(f"Запрошена страница {page}. Всего профилей: {total_profiles}, всего страниц: {total_pages}.")
+
+        # Получаем данные страницы
+        page_data = await get_page_data_from_cache(
+            page_number=page,
+            redis_client=redis_client,
+            total_profiles=total_profiles,
+            total_pages=total_pages
+        )
+
+        # Логируем успешное выполнение
+        logger.info(f"Показана страница {page} из {total_pages}. Профили: {len(page_data['profiles'])}.")
+
+        return page_data
+
+    except Exception as e:
+        logger.error(f"Ошибка при получении страницы {page}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Ошибка при получении профилей")

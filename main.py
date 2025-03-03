@@ -23,6 +23,7 @@ from typing import Optional, List
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
+from sqlalchemy.util import await_only
 
 from fake_profiles import generate_profiles
 
@@ -57,10 +58,9 @@ from cashe import (
     get_profiles_by_hashtag,
     get_cached_profiles,
     fetch_and_cache_profiles,
-    get_all_profiles_from_cache,
     get_profiles_by_ids,
-    save_profile_to_db_without_video
-
+    save_profile_to_db_without_video,
+    get_all_profiles_by_page
 )
 from tokens import TokenData, create_tokens, verify_access_token, verify_refresh_token
 from utils import scheduled_cleanup_task, parse_coordinates, process_coordinates_for_response, datetime_to_str, clean_old_logs
@@ -110,29 +110,22 @@ async def start_scheduler():
     # Получаем redis_client из состояния приложения
     redis_client = app.state.redis_client
 
-    # Задача, которая выполняется каждые 30 секунд (обновление профилей в Redis)
+    # Задача, которая выполняется каждые 5 минут (обновление профилей в Redis)
     scheduler.add_job(
         fetch_and_cache_profiles,  # Функция
-        IntervalTrigger(minutes=5),  # Триггер (интервал 5 минут)
+        IntervalTrigger(minutes=1),  # Триггер (интервал 5 минут)
         args=[redis_client]  # Аргументы для функции
     )
     logger.info("Задача fetch_and_cache_profiles добавлена в расписание (каждые 5 минут).")
 
-    # Задача, которая выполняется каждую минуту (синхронизация данных из Redis в БД)
+    # Задача, которая выполняется каждые 8 минут (синхронизация данных из Redis в БД)
     scheduler.add_job(
         sync_data_to_db,  # Функция
         IntervalTrigger(minutes=8),  # Триггер (интервал 8 минут)
     )
     logger.info("Задача sync_data_to_db добавлена в расписание (каждые 8 минут).")
 
-    # Запуск очистки файлов каждый день в 00:00
-    scheduler.add_job(
-        scheduled_cleanup_task,
-        CronTrigger(hour=22, minute=10, second=0)
-    )
-    logger.info("Задача очистки временных файлов добавлена в расписание (каждый день в 00:00).")
-
-    # Очистка логов каждые 5 минут
+    # Очистка логов каждые 6 минут
     scheduler.add_job(
         clean_old_logs,
         "interval",
@@ -140,6 +133,13 @@ async def start_scheduler():
         args=["video_service.log", 10],  # Очищаем логи старше 10 минут
     )
     logger.info("Задача очистки логов добавлена в расписание (каждые 5 минут).")
+
+    # Запуск очистки файлов каждый день в 00:00
+    scheduler.add_job(
+        scheduled_cleanup_task,
+        CronTrigger(hour=22, minute=10, second=0)
+    )
+    logger.info("Задача очистки временных файлов добавлена в расписание (каждый день в 00:00).")
 
 
     # Старт планировщика
@@ -673,9 +673,6 @@ async def get_favorites(user_id: int, redis_client: redis.Redis = Depends(get_re
 async def get_all_profiles_to_client(
     page: int = Query(1, description="Номер страницы (начинается с 1).", ge=1),  # Страница (по умолчанию 1)
     sort_by: Optional[str] = Query(None, description="Параметр сортировки. Возможные значения: newest, popularity.", enum=["newest", "popularity"]),
-    per_page: int = Query(50, description="Количество профилей на странице.", le=100),  # По умолчанию 50 профилей, максимум 100)
-    user_id: Optional[int] = Query(None, description="ID авторизованного пользователя."),
-    ip_address: Optional[str] = Query(None, description="IP-адрес неавторизованного пользователя."),
     redis_client: redis.Redis = Depends(get_redis_client)  # Зависимость для Redis
 ):
     """
@@ -683,32 +680,23 @@ async def get_all_profiles_to_client(
 
     :param page: Номер страницы (начинается с 1).
     :param sort_by: Параметр сортировки (опционально). Возможные значения: "newest", "popularity".
-    :param per_page: Количество профилей на странице (максимум 100).
-    :param user_id: ID авторизованного пользователя (обязательно, если не указан ip_address).
-    :param ip_address: IP-адрес неавторизованного пользователя (обязательно, если не указан user_id).
     :return: Словарь с данными о профилях, включая пагинацию и общее количество.
     """
-    # Проверяем, что передан хотя бы один из параметров (user_id или ip_address)
-    if user_id is None and ip_address is None:
-        raise HTTPException(status_code=400, detail="Необходимо указать либо user_id, либо ip_address.")
-
     try:
-        # Сначала пытаемся получить данные из кэша
-        cached_profiles = await get_all_profiles_from_cache(redis_client, page, sort_by, per_page, user_id, ip_address)
-        if cached_profiles["profiles"]:  # Если в кэше есть данные
-            logger.info("Профили получены из кэша.")
-            return cached_profiles
+        # Пытаемся получить данные из кэша
+        profiles_data = await get_all_profiles_by_page(page=page, sort_by=sort_by, redis_client=redis_client)
 
         # Если в кэше ничего нет, обращаемся к базе данных
-        logger.info("Кэш пуст, запрашиваем данные из базы данных.")
-        profiles_data = await get_all_profiles(page, sort_by, per_page, user_id, ip_address)
+        if not profiles_data.get("profiles"):  # Используем .get() для безопасного доступа
+            logger.info("Кэш пуст, запрашиваем данные из базы данных.")
+            profiles_data = await get_all_profiles(page=page, sort_by=sort_by)
 
         # Возвращаем данные
         return profiles_data
     except HTTPException:
         raise  # Пробрасываем HTTP-исключения без изменений
     except Exception as e:
-        logger.error(f"Ошибка в эндпоинте /profiles/all/: {str(e)}")
+        logger.error(f"Ошибка в эндпоинте /profiles/all/: {str(e)}", exc_info=True)  # Добавлено exc_info для деталей
         raise HTTPException(status_code=500, detail="Ошибка при получении профилей")
 
 

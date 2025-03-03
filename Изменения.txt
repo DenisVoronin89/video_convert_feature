@@ -203,8 +203,8 @@ find . -type f -name "*.py" -not -path "./venv/*" -not -path "./.venv/*" -not -p
 
 
 
-2025-03-01 20:06:51,145 - INFO - Общее количество профилей (без учёта фильтров): 486
-2025-03-01 20:06:51,146 - INFO - Закрытие сессии с БД.
-2025-03-01 20:07:03,980 - INFO - Открытие сессии с БД...
-2025-03-01 20:07:03,984 - INFO - Сессия с БД успешно открыта.
-2025-03-01 20:07:04,402 - INFO - Успешно обработано и закэшировано 908 профилей в Redis.
+2025-03-03 17:04:40,485 - ERROR - Ошибка в контексте сессии: name 'user_id' is not defined
+Module: database, Function: get_db_session_for_worker, Line: 67
+2025-03-03 17:04:40,486 - INFO - Закрытие сессии с БД.
+2025-03-03 17:04:40,487 - ERROR - Неизвестная ошибка: name 'user_id' is not defined
+Module: views, Function: get_all_profiles, Line: 321

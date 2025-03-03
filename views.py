@@ -218,9 +218,7 @@ async def add_shown_profiles(user_id: Optional[int], ip_address: Optional[str], 
 async def get_all_profiles(
     page: int,
     sort_by: Optional[str] = Query(None, description="Параметр сортировки (newest, popularity)"),
-    per_page: int = Query(50, description="Количество профилей на страницу (по умолчанию 50)"),
-    user_id: Optional[int] = Query(None, description="ID авторизованного пользователя"),
-    ip_address: Optional[str] = Query(None, description="IP-адрес неавторизованного пользователя")
+    per_page: int = Query(50, description="Количество профилей на страницу (по умолчанию 50)")
 ) -> dict:
     """
     Получает все профили с пагинацией и сортировкой.
