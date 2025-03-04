@@ -14,8 +14,9 @@ from typing import Optional, List, Union, Set
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload, subqueryload, selectinload
 from sqlalchemy.future import select
+from sqlalchemy.sql.expression import not_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import desc, func, bindparam, Integer, update
+from sqlalchemy import desc, func, bindparam, Integer, update, and_
 import redis.asyncio as redis
 from redis.exceptions import RedisError
 
@@ -165,60 +166,11 @@ async def move_image_to_user_logo(image_path: str, created_dirs: dict) -> str:
         raise HTTPException(status_code=500, detail="Не удалось переместить изображение в директорию user_logo")
 
 
-# Формируем ключи Redis для списка показанных профилей для юзера
-async def get_shown_profiles_key(user_id: Optional[int], ip_address: Optional[str]) -> str:
-    """
-    Возвращает ключ для Redis на основе user_id или ip_address.
-
-    :param user_id: ID авторизованного пользователя.
-    :param ip_address: IP-адрес неавторизованного пользователя.
-    :return: Ключ для Redis.
-    :raises ValueError: Если не указан ни user_id, ни ip_address.
-    """
-    if user_id:
-        return f"shown_profiles:{user_id}"
-    elif ip_address:
-        return f"shown_profiles:{ip_address}"
-    else:
-        raise ValueError("Необходим user_id или ip_address")
-
-
-# Получение списка показанных профилей из Redis
-async def get_shown_profiles(user_id: Optional[int], ip_address: Optional[str]) -> Set[int]:
-    """
-    Возвращает список показанных профилей для пользователя.
-
-    :param user_id: ID авторизованного пользователя.
-    :param ip_address: IP-адрес неавторизованного пользователя.
-    :return: Множество ID показанных профилей.
-    """
-    shown_profiles_key = await get_shown_profiles_key(user_id, ip_address)
-    shown_profiles = await redis_client.smembers(shown_profiles_key)
-    if shown_profiles:
-        return set(map(int, shown_profiles))
-    return set()
-
-
-# Добавление показанных профилей в Redis
-async def add_shown_profiles(user_id: Optional[int], ip_address: Optional[str], profile_ids: List[int]):
-    """
-    Добавляет показанные профили для пользователя.
-
-    :param user_id: ID авторизованного пользователя.
-    :param ip_address: IP-адрес неавторизованного пользователя.
-    :param profile_ids: Список ID профилей, которые нужно добавить.
-    """
-    shown_profiles_key = await get_shown_profiles_key(user_id, ip_address)
-    if profile_ids:
-        await redis_client.sadd(shown_profiles_key, *profile_ids)
-        await redis_client.expire(shown_profiles_key, 3600)  # TTL = 1 час
-
-
 # Получение всех профилей по тому же алгоритму или сортировке по новизне/популярности
 async def get_all_profiles(
     page: int,
-    sort_by: Optional[str] = Query(None, description="Параметр сортировки (newest, popularity)"),
-    per_page: int = Query(50, description="Количество профилей на страницу (по умолчанию 50)")
+    sort_by: Optional[str] = None,  # Просто строка без Query
+    per_page: int = 50  # Просто число без Query
 ) -> dict:
     """
     Получает все профили с пагинацией и сортировкой.
@@ -226,18 +178,17 @@ async def get_all_profiles(
     :param page: Номер страницы (начинается с 1).
     :param sort_by: Параметр сортировки (newest, popularity).
     :param per_page: Количество профилей на страницу.
-    :param user_id: ID авторизованного пользователя.
-    :param ip_address: IP-адрес неавторизованного пользователя.
     :return: Словарь с данными о профилях, включая пагинацию и общее количество.
     :raises HTTPException: Если произошла ошибка при выполнении запроса.
     """
     try:
         async with get_db_session_for_worker() as session:
-            logger.info(f"Запрос профилей: page={page}, per_page={per_page}, sort_by={sort_by}, user_id={user_id}, ip_address={ip_address}")
+            logger.info(f"Запрос профилей: page={page}, per_page={per_page} ({type(per_page)}), sort_by={sort_by}")
 
-            # Получаем множество уже показанных профилей из Redis
-            shown_profile_ids = await get_shown_profiles(user_id, ip_address)
-            logger.info(f"Получены {len(shown_profile_ids)} ID показанных профилей: {list(shown_profile_ids)[:10]}...")  # Выводим первые 10
+            # Принудительное приведение к int, если FastAPI каким-то образом передал Query
+            if not isinstance(per_page, int):
+                per_page = int(per_page)
+                logger.warning(f"per_page приведён к int: {per_page}")
 
             # Базовый запрос
             base_query = (
@@ -249,11 +200,7 @@ async def get_all_profiles(
                 .filter(UserProfiles.is_incognito == False)
             )
 
-            # Исключаем уже показанные профили
-            if shown_profile_ids:
-                base_query = base_query.filter(UserProfiles.id.notin_(list(shown_profile_ids)))
-
-            # Применяем сортировку
+            # Применение сортировки
             if sort_by == "newest":
                 query = base_query.order_by(desc(UserProfiles.created_at))
                 logger.info(f"Сортировка по новизне, страница {page}")
@@ -261,57 +208,131 @@ async def get_all_profiles(
                 query = base_query.order_by(desc(UserProfiles.followers_count))
                 logger.info(f"Сортировка по популярности, страница {page}")
             else:
-                # Если сортировка не указана, возвращаем случайные профили
-                query = base_query.order_by(func.random())
-                logger.info(f"Случайная сортировка, страница {page}")
+                logger.info(f"Сортировка не указана, применяем алгоритм, страница {page}")
 
-            # Пагинация
-            offset = (page - 1) * per_page
-            query = query.offset(offset).limit(per_page)
+                # Собираем 10 самых новых
+                newest_profiles = (await session.execute(
+                    base_query.order_by(desc(UserProfiles.created_at)).limit(10)
+                )).scalars().all()
+                logger.info(f"Собрано {len(newest_profiles)} самых новых профилей")
 
-            # Выполняем запрос
-            profiles = (await session.execute(query)).scalars().unique().all()
-            logger.info(f"Найдено {len(profiles)} профилей для страницы {page}")
+                # Собираем 10 самых популярных
+                popular_profiles = (await session.execute(
+                    base_query.order_by(desc(UserProfiles.followers_count)).limit(10)
+                )).scalars().all()
+                logger.info(f"Собрано {len(popular_profiles)} самых популярных профилей")
 
-            # Если профили найдены, сохраняем их ID в Redis
-            if profiles:
-                await add_shown_profiles(user_id, ip_address, [p.id for p in profiles])
+                # Собираем 10 профилей, где is_in_mlm != 0
+                mlm_profiles_query = base_query.filter(
+                    and_(
+                        UserProfiles.is_in_mlm != 0,
+                        UserProfiles.is_in_mlm.isnot(None)
+                    )
+                ).limit(10)
+                mlm_profiles = (await session.execute(mlm_profiles_query)).scalars().all()
+                logger.info(f"Собрано {len(mlm_profiles)} профилей с is_in_mlm != 0")
 
-            # Формируем данные для ответа
-            profiles_data = [{
-                "id": profile.id,
-                "created_at": await datetime_to_str(profile.created_at),
-                "name": profile.name,
-                "user_logo_url": profile.user_logo_url,
-                "video_url": profile.video_url,
-                "preview_url": profile.preview_url,
-                "activity_and_hobbies": profile.activity_and_hobbies,
-                "is_moderated": profile.is_moderated,
-                "is_incognito": profile.is_incognito,
-                "is_in_mlm": profile.is_in_mlm,
-                "adress": profile.adress,
-                "coordinates": await process_coordinates_for_response(profile.coordinates),
-                "followers_count": profile.followers_count,
-                "website_or_social": profile.website_or_social,
-                "user": {
-                    "id": profile.user.id,
-                    "wallet_number": profile.user.wallet_number,
-                },
-                "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
-            } for profile in profiles]
+                # Собираем 10 профилей, где video_url не None
+                video_profiles_query = base_query.filter(
+                    UserProfiles.video_url.isnot(None)
+                ).limit(10)
+                video_profiles = (await session.execute(video_profiles_query)).scalars().all()
+                logger.info(f"Собрано {len(video_profiles)} профилей с видео")
 
-            # Получаем общее количество профилей (без учета пагинации)
-            total_query = select(func.count()).select_from(UserProfiles).filter(UserProfiles.is_incognito == False)
-            total_result = await session.execute(total_query)
-            total = total_result.scalar()
-            logger.info(f"Общее количество профилей (без учёта фильтров): {total}")
+                # Собираем 10 случайных профилей
+                random_profiles = (await session.execute(
+                    base_query.order_by(func.random()).limit(10)
+                )).scalars().all()
+                logger.info(f"Собрано {len(random_profiles)} случайных профилей")
 
-            return {
-                "page": page,
-                "per_page": per_page,
-                "total": total,
-                "profiles": profiles_data,
-            }
+                # Объединяем все профили и убираем дубликаты
+                profiles = newest_profiles + popular_profiles + mlm_profiles + video_profiles + random_profiles
+                unique_profiles = list({profile.id: profile for profile in profiles}.values())
+                logger.info(f"Общее количество уникальных профилей после объединения: {len(unique_profiles)}")
+
+                # Добиваем до per_page случайными профилями, если нужно
+                if len(unique_profiles) < per_page:
+                    remaining_profiles_query = base_query.filter(
+                        not_(UserProfiles.id.in_([p.id for p in unique_profiles]))
+                    )
+                    remaining_profiles = (await session.execute(remaining_profiles_query)).scalars().all()
+
+                    if remaining_profiles:
+                        needed = per_page - len(unique_profiles)
+                        unique_profiles.extend(random.sample(remaining_profiles, min(needed, len(remaining_profiles))))
+                        logger.info(f"Добавлено {len(remaining_profiles)} оставшихся профилей для достижения per_page")
+
+                # Получаем все оставшиеся профили, которые не попали в выборку по алгоритму
+                remaining_all_profiles_query = base_query.filter(
+                    not_(UserProfiles.id.in_([p.id for p in unique_profiles]))
+                )
+                remaining_all_profiles = (await session.execute(remaining_all_profiles_query)).scalars().all()
+
+                # Объединяем все профили: сначала те, что по алгоритму, потом оставшиеся
+                all_profiles = unique_profiles + remaining_all_profiles
+                logger.info(f"Общее количество всех профилей после добавления оставшихся: {len(all_profiles)}")
+
+                # Формируем страницы
+                pages = [all_profiles[i:i + per_page] for i in range(0, len(all_profiles), per_page)]
+                total_pages = len(pages)
+                logger.info(f"Всего страниц: {total_pages}")
+
+                # Если страница выходит за пределы
+                if page > total_pages:
+                    logger.info(f"Профили просмотрены. Запрошенная страница ({page}) превышает {total_pages}.")
+                    return {
+                        "theme": "Макс, это для тебя корешок ^^",
+                        "page_number": page,
+                        "total_profiles": len(all_profiles),
+                        "total_pages": total_pages,
+                        "message": "Профили просмотрены. Начните с первой страницы.",
+                        "profiles": [],
+                    }
+
+                # Получаем профили для текущей страницы
+                current_page_profiles = pages[page - 1]
+
+                # Формируем ответ
+                profiles_data = [{
+                    "id": profile.id,
+                    "created_at": await datetime_to_str(profile.created_at),
+                    "name": profile.name,
+                    "user_logo_url": profile.user_logo_url,
+                    "video_url": profile.video_url,
+                    "preview_url": profile.preview_url,
+                    "activity_and_hobbies": profile.activity_and_hobbies,
+                    "is_moderated": profile.is_moderated,
+                    "is_incognito": profile.is_incognito,
+                    "is_in_mlm": profile.is_in_mlm,
+                    "adress": profile.adress,
+                    "coordinates": await process_coordinates_for_response(profile.coordinates),
+                    "followers_count": profile.followers_count,
+                    "website_or_social": profile.website_or_social,
+                    "user": {
+                        "id": profile.user.id,
+                        "wallet_number": profile.user.wallet_number,
+                    },
+                    "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags if ph.hashtag is not None],
+                } for profile in current_page_profiles]
+
+                # Получаем общее количество профилей
+                total_query = select(func.count()).select_from(UserProfiles).filter(UserProfiles.is_incognito == False)
+                total_result = await session.execute(total_query)
+                total = total_result.scalar()
+                logger.info(f"Общее количество профилей (без учёта фильтров): {total}")
+
+                # Формируем сообщение
+                offset = (page - 1) * per_page
+                message = f"Показаны профили {offset + 1}-{min(offset + per_page, total)} из {total}."
+
+                return {
+                    "theme": "Макс, это для тебя корешок ^^",
+                    "page_number": page,
+                    "total_profiles": total,
+                    "total_pages": total_pages,
+                    "message": message,
+                    "profiles": profiles_data,
+                }
 
     except SQLAlchemyError as e:
         logger.error(f"Ошибка запроса к базе: {e}")

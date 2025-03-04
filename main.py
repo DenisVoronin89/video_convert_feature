@@ -110,22 +110,22 @@ async def start_scheduler():
     # Получаем redis_client из состояния приложения
     redis_client = app.state.redis_client
 
-    # Задача, которая выполняется каждые 5 минут (обновление профилей в Redis)
+    # Задача, которая выполняется каждые 7 минут (обновление профилей в Redis)
     scheduler.add_job(
         fetch_and_cache_profiles,  # Функция
-        IntervalTrigger(minutes=1),  # Триггер (интервал 5 минут)
+        IntervalTrigger(minutes=2),  # Триггер (интервал 8 минут)
         args=[redis_client]  # Аргументы для функции
     )
     logger.info("Задача fetch_and_cache_profiles добавлена в расписание (каждые 5 минут).")
 
-    # Задача, которая выполняется каждые 8 минут (синхронизация данных из Redis в БД)
+    # Задача, которая выполняется каждые 11 минут (синхронизация данных из Redis в БД)
     scheduler.add_job(
         sync_data_to_db,  # Функция
-        IntervalTrigger(minutes=8),  # Триггер (интервал 8 минут)
+        IntervalTrigger(minutes=11),  # Триггер (интервал 8 минут)
     )
-    logger.info("Задача sync_data_to_db добавлена в расписание (каждые 8 минут).")
+    logger.info("Задача sync_data_to_db добавлена в расписание (каждые 11 минут).")
 
-    # Очистка логов каждые 6 минут
+    # Очистка логов каждые 5 минут
     scheduler.add_job(
         clean_old_logs,
         "interval",
@@ -686,7 +686,7 @@ async def get_all_profiles_to_client(
         # Пытаемся получить данные из кэша
         profiles_data = await get_all_profiles_by_page(page=page, sort_by=sort_by, redis_client=redis_client)
 
-        # Если в кэше ничего нет, обращаемся к базе данных
+        # # Если в кэше ничего нет, обращаемся к базе данных
         if not profiles_data.get("profiles"):  # Используем .get() для безопасного доступа
             logger.info("Кэш пуст, запрашиваем данные из базы данных.")
             profiles_data = await get_all_profiles(page=page, sort_by=sort_by)

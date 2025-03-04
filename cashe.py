@@ -20,13 +20,13 @@ from sqlalchemy.future import select
 from geoalchemy2.shape import to_shape
 from shapely.wkt import loads as wkt_loads
 from shapely.geometry import Point, MultiPoint
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Tuple
 
 from logging_config import get_logger
 from database import get_db_session, get_db_session_for_worker
 from models import UserProfiles, Favorite, Hashtag, ProfileHashtag, User
 from utils import datetime_to_str, process_coordinates_for_response, parse_coordinates
-from views import get_shown_profiles_key, get_shown_profiles, add_shown_profiles, move_image_to_user_logo
+from views import move_image_to_user_logo
 from schemas import serialize_form_data, FormData
 
 
@@ -742,9 +742,10 @@ async def save_profile_to_db_without_video(
 # ОТДАЧА ВСЕХ ПРОФИЛЕЙ И ПАГИНАЦИЯ
 
 # Функция для формирования страниц из закешированных профилей по алгоритму
-async def create_pages_from_cached_profiles(redis_client: redis.Redis) -> tuple[int, int]:
+async def create_pages_from_cached_profiles(redis_client: redis.Redis) -> Tuple[int, int]:
     """
     Формирует страницы по 50 профилей из закешированных данных в Redis.
+    Учитываются только публичные профили (is_incognito=False).
     Профили распределяются по страницам глобально, без привязки к пользователям.
 
     :param redis_client: Клиент Redis.
@@ -757,9 +758,13 @@ async def create_pages_from_cached_profiles(redis_client: redis.Redis) -> tuple[
         for key in cached_profile_keys:
             profile_data = await redis_client.get(key)
             if profile_data:
-                all_profiles.append(json.loads(profile_data))
+                profile = json.loads(profile_data)
+                # Фильтруем только публичные профили
+                if not profile.get("is_incognito", False):
+                    all_profiles.append(profile)
+
         total_profiles = len(all_profiles)
-        logger.info(f"Всего профилей в кеше: {total_profiles}")
+        logger.info(f"Всего публичных профилей в кеше: {total_profiles}")
 
         # Разделяем профили на категории
         popular_profiles = sorted(all_profiles, key=lambda x: x.get("followers_count", 0), reverse=True)[:10]
@@ -768,34 +773,30 @@ async def create_pages_from_cached_profiles(redis_client: redis.Redis) -> tuple[
         random_profiles = random.sample(all_profiles, min(10, len(all_profiles)))
         no_video_profiles = [p for p in all_profiles if not p.get("video_url")][:10]
 
-        # Объединяем профили в единый список
+        # Объединяем профили в единый список без дубликатов
         profiles_to_show = popular_profiles + new_profiles + mlm_profiles + random_profiles + no_video_profiles
-
-        # Убираем дубликаты
         unique_profiles = list({p["id"]: p for p in profiles_to_show}.values())
-        logger.info(f"Собрано профилей по алгоритму: {len(unique_profiles)}")
+        logger.info(f"Собрано уникальных профилей по алгоритму: {len(unique_profiles)}")
 
         # Если уникальных профилей меньше 50, добавляем случайные из оставшихся
         if len(unique_profiles) < 50:
             remaining_profiles = [p for p in all_profiles if p["id"] not in {x["id"] for x in unique_profiles}]
             if remaining_profiles:
                 logger.info(f"Добавляем {50 - len(unique_profiles)} случайных профилей из оставшихся.")
-                unique_profiles.extend(random.sample(remaining_profiles, min(50 - len(unique_profiles), len(remaining_profiles))))
+                unique_profiles.extend(
+                    random.sample(remaining_profiles, min(50 - len(unique_profiles), len(remaining_profiles))))
 
-        # Разбиваем профили на страницы по 50 штук
+        # Разбиваем профили на страницы по 50 штук без повторений
         page_size = 50
-        pages = [unique_profiles[i:i + page_size] for i in range(0, len(unique_profiles), page_size)]
+        pages = []
+        used_profile_ids = set()
+        for i in range(0, len(unique_profiles), page_size):
+            page_profiles = [p for p in unique_profiles[i:i + page_size] if p["id"] not in used_profile_ids]
+            used_profile_ids.update(p["id"] for p in page_profiles)
+            pages.append(page_profiles)
+
         total_pages = len(pages)
         logger.info(f"Сформировано страниц по алгоритму: {total_pages}")
-
-        # Обрабатываем оставшиеся профили, которые не попали в первые страницы
-        remaining_profiles = [p for p in all_profiles if p["id"] not in {x["id"] for x in unique_profiles}]
-        if remaining_profiles:
-            logger.info(f"Собрано оставшихся профилей: {len(remaining_profiles)}")
-            remaining_pages = [remaining_profiles[i:i + page_size] for i in range(0, len(remaining_profiles), page_size)]
-            pages.extend(remaining_pages)
-            total_pages += len(remaining_pages)
-            logger.info(f"Добавлено страниц из оставшихся профилей: {len(remaining_pages)}")
 
         # Если страниц нет, завершаем выполнение
         if not pages:
@@ -808,10 +809,9 @@ async def create_pages_from_cached_profiles(redis_client: redis.Redis) -> tuple[
             try:
                 await redis_client.setex(
                     cache_key,
-                    CACHE_PROFILES_TTL_SEK,  # Передаём секунды напрямую
+                    CACHE_PROFILES_TTL_SEK,
                     json.dumps(page_profiles)
                 )
-                # logger.info(f"Страница {page_number} закеширована в Redis под ключом {cache_key}.")
             except redis.RedisError as e:
                 logger.error(f"Ошибка Redis при кешировании страницы {page_number}: {str(e)}")
                 raise
