@@ -110,13 +110,13 @@ async def start_scheduler():
     # Получаем redis_client из состояния приложения
     redis_client = app.state.redis_client
 
-    # Задача, которая выполняется каждые 7 минут (обновление профилей в Redis)
+    # Задача, которая выполняется каждые 8 минут (обновление профилей в Redis)
     scheduler.add_job(
         fetch_and_cache_profiles,  # Функция
         IntervalTrigger(minutes=2),  # Триггер (интервал 8 минут)
         args=[redis_client]  # Аргументы для функции
     )
-    logger.info("Задача fetch_and_cache_profiles добавлена в расписание (каждые 5 минут).")
+    logger.info("Задача fetch_and_cache_profiles добавлена в расписание (каждые 8 минут).")
 
     # Задача, которая выполняется каждые 11 минут (синхронизация данных из Redis в БД)
     scheduler.add_job(

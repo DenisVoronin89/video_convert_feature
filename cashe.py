@@ -7,6 +7,7 @@ import os
 from datetime import timedelta
 import json
 import hashlib
+from math import ceil
 from fastapi import HTTPException, status
 import redis.asyncio as redis
 from pydantic import HttpUrl
@@ -786,17 +787,11 @@ async def create_pages_from_cached_profiles(redis_client: redis.Redis) -> Tuple[
                 unique_profiles.extend(
                     random.sample(remaining_profiles, min(50 - len(unique_profiles), len(remaining_profiles))))
 
-        # Разбиваем профили на страницы по 50 штук без повторений
+        # Теперь формируем страницы из всех профилей, а не только из уникальных по алгоритму
         page_size = 50
-        pages = []
-        used_profile_ids = set()
-        for i in range(0, len(unique_profiles), page_size):
-            page_profiles = [p for p in unique_profiles[i:i + page_size] if p["id"] not in used_profile_ids]
-            used_profile_ids.update(p["id"] for p in page_profiles)
-            pages.append(page_profiles)
-
-        total_pages = len(pages)
-        logger.info(f"Сформировано страниц по алгоритму: {total_pages}")
+        pages = [all_profiles[i:i + page_size] for i in range(0, len(all_profiles), page_size)]
+        total_pages = ceil(len(all_profiles) / page_size)  # Округляем вверх
+        logger.info(f"Сформировано страниц: {total_pages}")
 
         # Если страниц нет, завершаем выполнение
         if not pages:
@@ -821,6 +816,55 @@ async def create_pages_from_cached_profiles(redis_client: redis.Redis) -> Tuple[
 
     except Exception as e:
         logger.error(f"Ошибка при формировании страниц: {e}")
+        raise
+
+
+# Получение данных страницы из Редис
+async def get_page_data_from_cache(
+    page_number: int,
+    redis_client: redis.Redis,
+    total_profiles: int,
+    total_pages: int
+) -> Dict:
+    try:
+        cache_key = f"page_{page_number}"
+        page_profiles = await redis_client.get(cache_key)
+
+        if not page_profiles:
+            return {
+                "theme": "Макс, это для тебя корешок ^^",
+                "page_number": page_number,
+                "total_profiles": total_profiles,
+                "total_pages": total_pages,
+                "message": "Страница не найдена.",
+                "profiles": [],
+            }
+
+        await redis_client.expire(cache_key, CACHE_PROFILES_TTL_SEK)
+
+        profiles = json.loads(page_profiles)
+        is_last_page = page_number == total_pages
+        is_incomplete_page = len(profiles) < 50
+
+        start_index = (page_number - 1) * 50 + 1
+        end_index = min(start_index + len(profiles) - 1, total_profiles)  # Корректный конечный индекс
+
+        message = f"Показаны профили {start_index}-{end_index} из {total_profiles}."
+
+        if is_last_page and is_incomplete_page:
+            message += " Это последняя страница. Начните просмотр профилей со страницы номер 1."
+
+        return {
+            "theme": "Макс, это для тебя корешок ^^",
+            "page_number": page_number,
+            "total_profiles": total_profiles,
+            "total_pages": total_pages,
+            "message": message,
+            "profiles": profiles,
+        }
+
+    except Exception as e:
+        logger.error(f"Ошибка при получении страницы {page_number} из Redis: {str(e)}")
         raise
 
 
@@ -994,12 +1038,24 @@ async def get_page_data_from_cache(
         profiles = json.loads(page_profiles)
         logger.info(f"Получено {len(profiles)} профилей для страницы {page_number} из Redis.")
 
+        # Проверяем, является ли текущая страница последней и неполной
+        is_last_page = page_number == total_pages
+        is_incomplete_page = len(profiles) < 50
+
+        # Формируем сообщение
+        offset = (page_number - 1) * 50
+        end_index = offset + len(profiles)  # Корректный конечный индекс
+        message = f"Показаны профили {offset + 1}-{end_index} из {total_profiles}."
+
+        if is_last_page and is_incomplete_page:
+            message += " Это последняя страница. Начните просмотр профилей со страницы номер 1."
+
         return {
             "theme": "Макс, это для тебя корешок ^^",  # Сообщение на фронт
             "page_number": page_number,
             "total_profiles": total_profiles,
             "total_pages": total_pages,
-            "message": f"Показаны профили {page_number * 50 - 49}-{page_number * 50} из {total_profiles}.",
+            "message": message,
             "profiles": profiles,
         }
 

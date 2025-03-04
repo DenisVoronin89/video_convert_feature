@@ -3,6 +3,7 @@ import shutil
 import aiofiles
 import hashlib
 import random
+from math import ceil # Импортируем ceil для округления вверх
 from uuid import uuid4
 from fastapi import UploadFile, HTTPException, status, Query
 from geoalchemy2.shape import to_shape
@@ -167,6 +168,8 @@ async def move_image_to_user_logo(image_path: str, created_dirs: dict) -> str:
 
 
 # Получение всех профилей по тому же алгоритму или сортировке по новизне/популярности
+from math import ceil  # Импортируем ceil для округления вверх
+
 async def get_all_profiles(
     page: int,
     sort_by: Optional[str] = None,  # Просто строка без Query
@@ -274,7 +277,7 @@ async def get_all_profiles(
 
                 # Формируем страницы
                 pages = [all_profiles[i:i + per_page] for i in range(0, len(all_profiles), per_page)]
-                total_pages = len(pages)
+                total_pages = ceil(len(all_profiles) / per_page)  # Используем ceil для округления вверх
                 logger.info(f"Всего страниц: {total_pages}")
 
                 # Если страница выходит за пределы
@@ -291,6 +294,18 @@ async def get_all_profiles(
 
                 # Получаем профили для текущей страницы
                 current_page_profiles = pages[page - 1]
+
+                # Проверяем, является ли текущая страница последней и неполной
+                is_last_page = page == total_pages
+                is_incomplete_page = len(current_page_profiles) < per_page
+
+                # Формируем сообщение
+                offset = (page - 1) * per_page
+                end_index = offset + len(current_page_profiles)  # Корректный конечный индекс
+                message = f"Показаны профили {offset + 1}-{end_index} из {len(all_profiles)}."
+
+                if is_last_page and is_incomplete_page:
+                    message += " Это последняя страница. Начните просмотр профилей со страницы номер 1."
 
                 # Формируем ответ
                 profiles_data = [{
@@ -315,20 +330,10 @@ async def get_all_profiles(
                     "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags if ph.hashtag is not None],
                 } for profile in current_page_profiles]
 
-                # Получаем общее количество профилей
-                total_query = select(func.count()).select_from(UserProfiles).filter(UserProfiles.is_incognito == False)
-                total_result = await session.execute(total_query)
-                total = total_result.scalar()
-                logger.info(f"Общее количество профилей (без учёта фильтров): {total}")
-
-                # Формируем сообщение
-                offset = (page - 1) * per_page
-                message = f"Показаны профили {offset + 1}-{min(offset + per_page, total)} из {total}."
-
                 return {
                     "theme": "Макс, это для тебя корешок ^^",
                     "page_number": page,
-                    "total_profiles": total,
+                    "total_profiles": len(all_profiles),
                     "total_pages": total_pages,
                     "message": message,
                     "profiles": profiles_data,
