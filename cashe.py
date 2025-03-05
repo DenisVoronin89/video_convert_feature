@@ -527,13 +527,15 @@ async def get_profiles_by_ids(profile_ids: List[int]) -> List[dict]:
 async def save_profile_to_db_without_video(
     form_data: FormData,
     image_data: dict,
-    created_dirs: dict
+    created_dirs: dict,
+    new_user_image: bool = True  # Новый параметр
 ):
     """
     Сохраняет или обновляет профиль пользователя в базе данных без видео.
 
     :param form_data: Данные формы.
     :param image_data: Данные изображения.
+    :param new_user_image: Флаг, указывающий, нужно ли обновлять аватарку.
     """
     try:
         # Преобразование данных формы в словарь
@@ -560,41 +562,45 @@ async def save_profile_to_db_without_video(
         if coordinates:
             multi_point_wkt = await parse_coordinates(coordinates)
 
-        # Извлечение путей к файлам из JSON
-        try:
-            image_path = image_data.get("image_path")
+        # Если new_user_image == True, обрабатываем новое изображение
+        if new_user_image:
+            # Извлечение путей к файлам из JSON
+            try:
+                image_path = image_data.get("image_path")
 
-            if not image_path:
-                raise ValueError("Путь к файлу не был найден в данных JSON.")
+                if not image_path:
+                    raise ValueError("Путь к файлу не был найден в данных JSON.")
 
-            logger.info(f"Путь к изображению: {image_path}")
+                logger.info(f"Путь к изображению: {image_path}")
 
-        except Exception as e:
-            logger.error(f"Ошибка при извлечении путей из JSON: {str(e)}")
-            raise HTTPException(status_code=400, detail="Ошибка при извлечении путей из JSON.")
+                # Преобразование путей в абсолютные, если они относительные
+                absolute_image_path = os.path.abspath(image_path)
 
-        # Преобразование путей в абсолютные, если они относительные
-        absolute_image_path = os.path.abspath(image_path)
+                logger.info(f"Абсолютный путь к изображению: {absolute_image_path}")
 
-        logger.info(f"Абсолютный путь к изображению: {absolute_image_path}")
+                # Проверка существования изображения
+                if not os.path.isfile(absolute_image_path):
+                    logger.error(f"Путь к изображению не ведет к файлу: {absolute_image_path}")
+                    raise HTTPException(status_code=400, detail="Указанный путь к изображению не ведет к файлу.")
 
-        # Проверка существования изображения
-        if not os.path.isfile(absolute_image_path):
-            logger.error(f"Путь к изображению не ведет к файлу: {absolute_image_path}")
-            raise HTTPException(status_code=400, detail="Указанный путь к изображению не ведет к файлу.")
+                # Перенос изображения в постоянную папку "user_logo"
+                try:
+                    # Перенос изображения и получение пути
+                    user_logo_path = await move_image_to_user_logo(absolute_image_path, created_dirs)
+                    logger.info(f"Изображение успешно перемещено в постоянную папку: {user_logo_path}")
+                except Exception as e:
+                    logger.error(f"Ошибка при перемещении изображения: {str(e)}")
+                    raise HTTPException(status_code=500, detail=f"Ошибка при перемещении изображения: {str(e)}")
 
-        # Перенос изображения в постоянную папку "user_logo"
-        try:
-            # Перенос изображения и получение пути
-            user_logo_path = await move_image_to_user_logo(absolute_image_path, created_dirs)
-            logger.info(f"Изображение успешно перемещено в постоянную папку: {user_logo_path}")
-        except Exception as e:
-            logger.error(f"Ошибка при перемещении изображения: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Ошибка при перемещении изображения: {str(e)}")
-
-        # Преобразование user_logo_path в строку, так как это объект HttpUrl
-        if isinstance(user_logo_path, HttpUrl):
-            user_logo_path = str(user_logo_path)
+                # Преобразование user_logo_path в строку, так как это объект HttpUrl
+                if isinstance(user_logo_path, HttpUrl):
+                    user_logo_path = str(user_logo_path)
+            except Exception as e:
+                logger.error(f"Ошибка при извлечении путей из JSON: {str(e)}")
+                raise HTTPException(status_code=400, detail="Ошибка при извлечении путей из JSON.")
+        else:
+            # Если new_user_image == False, оставляем старое значение user_logo_url
+            user_logo_path = None  # Это значение не будет использоваться
 
         # Открываем сессию для работы с базой данных
         async with get_db_session_for_worker() as session:
@@ -626,7 +632,8 @@ async def save_profile_to_db_without_video(
                     profile.is_in_mlm = form_data_dict.get("is_in_mlm")
                     profile.is_incognito = form_data_dict.get("is_incognito", False)
                     profile.language = form_data_dict.get("language")
-                    profile.user_logo_url = user_logo_path  # Добавляем путь к логотипу
+                    if new_user_image:  # Обновляем аватарку только если new_user_image == True
+                        profile.user_logo_url = user_logo_path
                     profile.video_url = None  # Видео отсутствует
                     profile.preview_url = None  # Превью отсутствует
 
@@ -649,7 +656,7 @@ async def save_profile_to_db_without_video(
                         is_admin=False,
                         user_id=user.id,
                         language=form_data_dict.get("language"),
-                        user_logo_url=user_logo_path,  # Добавляем путь к логотипу
+                        user_logo_url=user_logo_path if new_user_image else None,  # Добавляем путь к логотипу только если new_user_image == True
                         video_url=None,  # Видео отсутствует
                         preview_url=None  # Превью отсутствует
                     )

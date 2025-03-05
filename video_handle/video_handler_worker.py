@@ -30,10 +30,10 @@ logger = get_logger()
 CHANNEL = config("CHANNEL", default="video_tasks")
 REDIS_HOST = "redis"
 PREVIEW_DURATION = 5  # Длительность превью
-S3_BUCKET_NAME = "video-service"
-AWS_REGION = "us-east-1"
-AWS_ACCESS_KEY_ID = "pkZKH9pAVimC5SqmBf1r"
-AWS_SECRET_ACCESS_KEY = "NO7zSwNyYrNXOiFcBAL2gRYbaZ3kgngdtD8qUEjd"
+S3_BUCKET_NAME = "stt-market-videos"
+AWS_REGION = "us-north-1"
+AWS_ACCESS_KEY_ID = "AKIASK5MCIJGBCV2PPNT"
+AWS_SECRET_ACCESS_KEY = "ylJRIoqwMpKyP8gB7kyXtWGuoxJ5shGecWhL0xO"
 
 
 async def convert_to_vp9(input_path, output_path, logger):
@@ -112,21 +112,21 @@ async def extract_preview(input_path, preview_path, duration=PREVIEW_DURATION, l
 
 # TODO в проде нужно не забыть сюда поставить нужные парметры такие как урлы и прочее!!!
 async def check_s3_connection(logger):
-    """ Проверка соединения с MinIO перед загрузкой. """
+    """ Проверка соединения с AWS S3 перед загрузкой. """
     try:
         async with get_session().create_client(
                 "s3",
                 region_name=AWS_REGION,
                 aws_access_key_id=AWS_ACCESS_KEY_ID,
-                aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-                endpoint_url="http://minio:9000",  # TODO minio из контейнера, в проде сменить!!!
+                aws_secret_access_key=AWS_SECRET_ACCESS_KEY
         ) as s3_client:
             # Проверка подключения, попытка получить список объектов из бакета
             await s3_client.list_objects_v2(Bucket=S3_BUCKET_NAME)
-            logger.info("Соединение с MinIO установлено успешно.")
+            logger.info("Соединение с AWS S3 установлено успешно.")  # Лог об успешном соединении
+            return True  # Возвращаем True, если соединение успешно
     except Exception as e:
-        logger.error(f"Не удалось установить соединение с MinIO: {e}")
-        raise RuntimeError(f"Не удалось подключиться к MinIO: {e}")
+        logger.error(f"Не удалось установить соединение с AWS S3: {e}")
+        raise RuntimeError(f"Не удалось подключиться к AWS S3: {e}")
 
 
 async def upload_to_s3(converted_video, preview_video, logger):
@@ -151,11 +151,10 @@ async def upload_to_s3(converted_video, preview_video, logger):
                 "s3",
                 region_name=AWS_REGION,
                 aws_access_key_id=AWS_ACCESS_KEY_ID,
-                aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-                endpoint_url="http://minio:9000",  # TODO minio из контейнера, в проде сменить!!!
+                aws_secret_access_key=AWS_SECRET_ACCESS_KEY
         ) as s3_client:
             # Загрузка видео
-            logger.info(f"Загрузка видео в S3: {converted_video} -> {video_filename}")
+            logger.info(f"Загрузка видео в AWS S3: {converted_video} -> {video_filename}")
             async with aiofiles.open(converted_video, "rb") as video_file:
                 video_stream = io.BytesIO(await video_file.read())
             response_video = await s3_client.put_object(
@@ -166,10 +165,10 @@ async def upload_to_s3(converted_video, preview_video, logger):
             if response_video["ResponseMetadata"]["HTTPStatusCode"] != 200:
                 raise RuntimeError(f"Ошибка при загрузке видео: некорректный код ответа")
 
-            logger.info(f"Видео успешно загружено в S3: {video_filename}")
+            logger.info(f"Видео успешно загружено в AWS S3: {video_filename}")
 
             # Загрузка превью
-            logger.info(f"Загрузка превью в S3: {preview_video} -> {preview_filename}")
+            logger.info(f"Загрузка превью в AWS S3: {preview_video} -> {preview_filename}")
             async with aiofiles.open(preview_video, "rb") as preview_file:
                 preview_stream = io.BytesIO(await preview_file.read())
             response_preview = await s3_client.put_object(
@@ -180,11 +179,11 @@ async def upload_to_s3(converted_video, preview_video, logger):
             if response_preview["ResponseMetadata"]["HTTPStatusCode"] != 200:
                 raise RuntimeError(f"Ошибка при загрузке превью: некорректный код ответа")
 
-            logger.info(f"Превью успешно загружено в S3: {preview_filename}")
+            logger.info(f"Превью успешно загружено в AWS S3: {preview_filename}")
 
         # Возврат ссылок на загруженные файлы
-        video_url = f"http://minio:9000/{S3_BUCKET_NAME}/{video_filename}"  # TODO ИЗМЕНИТЬ В ПРОДЕ НА КОРРЕКТНОЕ!!!!
-        preview_url = f"http://minio:9000/{S3_BUCKET_NAME}/{preview_filename}"  # TODO ИЗМЕНИТЬ В ПРОДЕ НА КОРРЕКТНОЕ!!!!
+        video_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{video_filename}"
+        preview_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{preview_filename}"
         logger.info(f"Загруженные файлы: Видео - {video_url}, Превью - {preview_url}")
 
         return video_url, preview_url

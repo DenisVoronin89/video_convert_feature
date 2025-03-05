@@ -168,8 +168,6 @@ async def move_image_to_user_logo(image_path: str, created_dirs: dict) -> str:
 
 
 # Получение всех профилей по тому же алгоритму или сортировке по новизне/популярности
-from math import ceil  # Импортируем ceil для округления вверх
-
 async def get_all_profiles(
     page: int,
     sort_by: Optional[str] = None,  # Просто строка без Query

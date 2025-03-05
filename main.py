@@ -558,6 +558,7 @@ async def save_profile(profile_data: FormData, image_data: dict, video_data: dic
 async def create_or_update_user_profile(
     form_data: FormData,
     image_data: dict,
+    new_user_image: bool,
     _: TokenData = Depends(check_user_token)
 ):
     """
@@ -571,7 +572,7 @@ async def create_or_update_user_profile(
 
     try:
         # Вызываем функцию сохранения профиля
-        return await save_profile_to_db_without_video(form_data, image_data, created_dirs)
+        return await save_profile_to_db_without_video(form_data, image_data, created_dirs, new_user_image)
     except Exception as e:
         logger.error(f"Ошибка в эндпоинте /save_profile_without_video/: {str(e)}")
         raise HTTPException(

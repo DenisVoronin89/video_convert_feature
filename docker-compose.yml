@@ -14,7 +14,7 @@ services:
       - ./init_postgis.sql:/docker-entrypoint-initdb.d/init_postgis.sql
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"  # Пробрасываем порт 5432 наружу (для тейбл плюс)
+      - "5432:5432"  # Пробрасываем порт 5432 наружу (для миграций, table plus)
 
 
   redis:
@@ -22,17 +22,6 @@ services:
     networks:
       - backend
 
-  minio:
-    image: minio/minio:latest
-    ports:
-      - "9000:9000" # Для обращения к API из подписчика
-      - "45127:45127" # Для WebUI
-    command: server /data --console-address ":45127"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    networks:
-      - backend
 
   video_handler_subscriber:
     build:
@@ -51,7 +40,8 @@ services:
       - ./output_preview:/app/output_preview  # Общая папка для выводов превью
       - ./output_video:/app/output_video  # Общая папка для выводов видео
     environment:
-      MINIO_ENDPOINT: minio:45127
+      S3_ENDPOINT:
+
 
   fastapi_app:
     build:

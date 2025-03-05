@@ -14,6 +14,7 @@ from video_handle.video_handler_worker import (
     extract_preview,
     upload_to_s3,
     save_profile_to_db,
+    check_s3_connection,
     PREVIEW_DURATION
 )
 from logging_config import get_logger
@@ -23,10 +24,10 @@ logger = get_logger()
 
 CHANNEL = "video_tasks"  # Канал для видео задач
 REDIS_HOST = "redis"
-S3_BUCKET_NAME = "video-service"
-AWS_REGION = "us-east-1"
-AWS_ACCESS_KEY_ID = "pkZKH9pAVimC5SqmBf1r"
-AWS_SECRET_ACCESS_KEY = "NO7zSwNyYrNXOiFcBAL2gRYbaZ3kgngdtD8qUEjd"
+S3_BUCKET_NAME = "stt-market-videos"
+AWS_REGION = "eu-north-1"
+AWS_ACCESS_KEY_ID = "AKIASK5MCIJGBCV2PPNT"
+AWS_SECRET_ACCESS_KEY = "ylJRIoqwMpKyP8gB7kyXtWGuoxJ5shGecWhL0xO"
 
 
 async def handle_task(task_data):
@@ -109,8 +110,8 @@ async def handle_task(task_data):
 async def main():
     """Основная функция для подписки и обработки задач с ретрай-логикой"""
     logger.info("Запуск подписки на канал Redis для получения задач")
-    retries = 5
-    retry_delay = 5
+    retries = 5  # Количество ретраев для Redis и S3
+    retry_delay = 5  # Задержка между ретраями (в секундах)
 
     redis = Redis(host=REDIS_HOST, port=6379, db=0, decode_responses=True)
 
@@ -125,6 +126,27 @@ async def main():
         logger.error(f"Ошибка подключения к Redis: {e}")
         return  # Завершение выполнения, если Redis недоступен
 
+    # Проверка соединения с S3 с ретраями
+    logger.info("Проверка соединения с AWS S3...")  # Лог перед проверкой S3
+    s3_connected = False
+    for attempt in range(retries):
+        try:
+            await check_s3_connection(logger)  # Вызов функции проверки соединения с S3
+            s3_connected = True
+            break  # Выход из цикла, если соединение успешно
+        except Exception as e:
+            if attempt == retries - 1:  # Если это последняя попытка
+                logger.error(f"Не удалось установить соединение с AWS S3 после {retries} попыток: {e}")
+                return  # Завершение выполнения, если S3 недоступен
+            logger.warning(f"Попытка {attempt + 1} из {retries}: Ошибка соединения с AWS S3. Повторная попытка через {retry_delay} секунд...")
+            await asyncio.sleep(retry_delay)  # Задержка перед повторной попыткой
+
+    if not s3_connected:
+        return  # Завершение выполнения, если S3 недоступен после всех попыток
+
+    logger.info("Соединение с AWS S3 установлено успешно.")  # Лог об успешном соединении
+
+    # Основной цикл подписчика
     while True:
         try:
             pubsub = redis.pubsub()
@@ -139,7 +161,6 @@ async def main():
                         logger.info(f"Получено сообщение от Redis: {message}")
                         task_data = json.loads(message["data"])  # Декодировка данных задачи
                         await handle_task(task_data)
-
 
                 except Exception as e:
                     current_time = datetime.now()

@@ -128,15 +128,15 @@ MIME-тип или расширение, но на самом деле явля�
     ],
     "is_in_mlm": 1,
     "is_incognito": false,
-    "name": "John Gandon",
-    "wallet_number": "0x27b0B8cfa07fA98f36Ad674F679D36EBC7d4355",
+    "name": "John V Rot Berun",
+    "wallet_number": "0x27b0B8cfa07fA98f36Ad953F679D36EBC7d4355",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/eea53f02-4b99-4ab9-9ef0-46506ef891b9_orig_cat.webp"
+    "image_path": "./image_temp/6c73d933-3993-4c8e-bf27-a4f77a1244e9_orig_cat.webp"
   },
   "video_data": {
-    "video_path": "./video_temp/83c9d5b3-1ac4-44a6-a3ca-894affa5d674_ptichka.mp4"
+    "video_path": "./video_temp/8121675a-0591-46bb-98f4-5df711e5d38e_cat_cat.mp4"
   }
 }
 
