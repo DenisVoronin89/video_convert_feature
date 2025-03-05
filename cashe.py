@@ -528,7 +528,8 @@ async def save_profile_to_db_without_video(
     form_data: FormData,
     image_data: dict,
     created_dirs: dict,
-    new_user_image: bool = True  # Новый параметр
+    new_user_image: bool = True,  # Новый параметр
+    delete_video: bool = False  # Новый параметр для удаления видео
 ):
     """
     Сохраняет или обновляет профиль пользователя в базе данных без видео.
@@ -536,6 +537,7 @@ async def save_profile_to_db_without_video(
     :param form_data: Данные формы.
     :param image_data: Данные изображения.
     :param new_user_image: Флаг, указывающий, нужно ли обновлять аватарку.
+    :param delete_video: Флаг, указывающий, нужно ли удалять видео и превью.
     """
     try:
         # Преобразование данных формы в словарь
@@ -619,6 +621,8 @@ async def save_profile_to_db_without_video(
                 result = await session.execute(stmt)
                 profile = result.scalars().first()
 
+                is_new_profile = False  # Флаг для определения, был ли создан новый профиль
+
                 if profile:
                     current_is_admin = profile.is_admin
 
@@ -634,8 +638,12 @@ async def save_profile_to_db_without_video(
                     profile.language = form_data_dict.get("language")
                     if new_user_image:  # Обновляем аватарку только если new_user_image == True
                         profile.user_logo_url = user_logo_path
-                    profile.video_url = None  # Видео отсутствует
-                    profile.preview_url = None  # Превью отсутствует
+
+                    # Обработка видео и превью
+                    if delete_video:  # Если нужно удалить видео
+                        profile.video_url = None  # Видео отсутствует
+                        profile.preview_url = None  # Превью отсутствует
+                    # Если delete_video == False, поля video_url и preview_url остаются без изменений
 
                     profile.is_admin = current_is_admin
 
@@ -666,6 +674,7 @@ async def save_profile_to_db_without_video(
                     session.add(new_profile)
                     await session.flush()
                     profile = new_profile
+                    is_new_profile = True  # Устанавливаем флаг, что профиль новый
                     logger.info(f"Создан профиль для пользователя {user.id}, флаг is_profile_created установлен в True")
 
                 # Работа с хэштегами
@@ -709,9 +718,12 @@ async def save_profile_to_db_without_video(
 
                 # Подтверждаем изменения в БД
                 await session.commit()
-                logger.info(f"Профиль успешно сохранен.")
+
+                # Формируем сообщение в зависимости от того, был ли создан новый профиль
+                message = "Профиль успешно обновлен" if not is_new_profile else "Профиль успешно сохранен"
+                logger.info(f"{message}.")
                 return {
-                    "message": "Профиль успешно сохранен",
+                    "message": message,
                     "profile_id": profile.id  # Добавляем ID профиля
                 }
 

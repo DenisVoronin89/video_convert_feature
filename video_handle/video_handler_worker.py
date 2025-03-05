@@ -6,6 +6,7 @@ import aiofiles
 import io
 from prettyconf import config
 import os
+from dotenv import load_dotenv
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.future import select
@@ -26,14 +27,20 @@ from logging_config import get_logger
 
 logger = get_logger()
 
-# Конфиги для разработки и тестирования облачного хранилища(НЕ ДЛЯ ПРОДАКШЕНА)
+# Конфиги для канала редис
 CHANNEL = config("CHANNEL", default="video_tasks")
 REDIS_HOST = "redis"
+
 PREVIEW_DURATION = 5  # Длительность превью
-S3_BUCKET_NAME = "stt-market-videos"
-AWS_REGION = "us-north-1"
-AWS_ACCESS_KEY_ID = "AKIASK5MCIJGBCV2PPNT"
-AWS_SECRET_ACCESS_KEY = "ylJRIoqwMpKyP8gB7kyXtWGuoxJ5shGecWhL0xO"
+
+
+load_dotenv()
+
+# Конфиги для облака
+S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
+AWS_REGION = os.getenv("AWS_REGION")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 
 
 async def convert_to_vp9(input_path, output_path, logger):

@@ -24,12 +24,9 @@ logger = get_logger()
 
 CHANNEL = "video_tasks"  # Канал для видео задач
 REDIS_HOST = "redis"
-S3_BUCKET_NAME = "stt-market-videos"
-AWS_REGION = "eu-north-1"
-AWS_ACCESS_KEY_ID = "AKIASK5MCIJGBCV2PPNT"
-AWS_SECRET_ACCESS_KEY = "ylJRIoqwMpKyP8gB7kyXtWGuoxJ5shGecWhL0xO"
 
 
+# Функция обработки задач на микросервисе
 async def handle_task(task_data):
     """Обработка всех задач последовательно"""
     logger.info(f"Получена задача для обработки: {task_data}")
@@ -107,6 +104,7 @@ async def handle_task(task_data):
         logger.info("Данные задачи очищены.")
 
 
+# Запуск подписчика в работу, проверка соединения с облаком
 async def main():
     """Основная функция для подписки и обработки задач с ретрай-логикой"""
     logger.info("Запуск подписки на канал Redis для получения задач")

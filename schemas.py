@@ -22,7 +22,7 @@ class FormData(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Имя пользователя")
     website_or_social: Optional[str] = Field(None, max_length=255, description="Веб-сайт или соц. сеть пользователя")
     activity_hobbies: Optional[str] = Field(None, max_length=500, description="Активность и хобби")
-    hashtags: Optional[List[str]] = Field(None, min_items=1, max_items=20, description="Список хэштегов, связанных с пользователем (до 20 шт.)")
+    hashtags: Optional[List[str]] = Field(None, max_items=20, description="Список хэштегов, связанных с пользователем (до 20 шт.)")
     adress: Optional[List[str]] = Field(None, min_items=1, max_items=10, description="Список адресов (макс. 10)")
     city: Optional[str] = Field(None, max_length=55, description="Город пользователя")
     coordinates: Optional[List[Tuple[float, float]]] = Field(None, max_items=10, description="Координаты пользователя (до 10 пар), каждая пара: [долгота, широта]")

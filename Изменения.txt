@@ -129,7 +129,7 @@ MIME-тип или расширение, но на самом деле явля�
     "is_in_mlm": 1,
     "is_incognito": false,
     "name": "John V Rot Berun",
-    "wallet_number": "0x27b0B8cfa07fA98f36Ad953F679D36EBC7d4355",
+    "wallet_number": "0x27b0B8cfa07fA60f36Ad953F679D36EBC7d4355",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
@@ -155,24 +155,21 @@ MIME-тип или расширение, но на самом деле явля�
       "123 Example Street, Example City",
       "456 Another Street, Another City"
     ],
-    "city": "Поппенгагген",
+    "city": "нахуй все",
     "coordinates": [
       [
         59.7700,
         37.6800
       ]
     ],
-    "hashtags": [
-      "Жрать гавно"
-    ],
     "is_in_mlm": 1,
     "is_incognito": false,
-    "name": "Гавноед",
-    "wallet_number": "0x95b9B8cfa39fA73f48Ad574F600D86EBC2d4753",
+    "name": "Заебал этот эндпоинт сука!",
+    "wallet_number": "0x27b0B8cfa07fA60f36Ad953F679D36EBC7d4355",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/9e3cc060-1821-46de-acf0-23c7472e36ac_orig_cat.webp"
+    "image_path": "./image_temp/89ee3bcd-31c3-40f3-8dd9-4717aca81821_orig_cat.webp"
   }
 }
 

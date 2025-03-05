@@ -110,20 +110,20 @@ async def start_scheduler():
     # Получаем redis_client из состояния приложения
     redis_client = app.state.redis_client
 
-    # Задача, которая выполняется каждые 8 минут (обновление профилей в Redis)
+    # Задача, которая выполняется каждые 5 минут (обновление профилей в Redis)
     scheduler.add_job(
         fetch_and_cache_profiles,  # Функция
-        IntervalTrigger(minutes=2),  # Триггер (интервал 8 минут)
+        IntervalTrigger(minutes=5),  # Триггер (интервал 5 минут)
         args=[redis_client]  # Аргументы для функции
     )
-    logger.info("Задача fetch_and_cache_profiles добавлена в расписание (каждые 8 минут).")
+    logger.info("Задача fetch_and_cache_profiles добавлена в расписание (каждые 5 минут).")
 
-    # Задача, которая выполняется каждые 11 минут (синхронизация данных из Redis в БД)
+    # Задача, которая выполняется каждые 8 минут (синхронизация данных из Redis в БД)
     scheduler.add_job(
         sync_data_to_db,  # Функция
-        IntervalTrigger(minutes=11),  # Триггер (интервал 8 минут)
+        IntervalTrigger(minutes=8),  # Триггер (интервал 8 минут)
     )
-    logger.info("Задача sync_data_to_db добавлена в расписание (каждые 11 минут).")
+    logger.info("Задача sync_data_to_db добавлена в расписание (каждые 8 минут).")
 
     # Очистка логов каждые 5 минут
     scheduler.add_job(
@@ -559,6 +559,7 @@ async def create_or_update_user_profile(
     form_data: FormData,
     image_data: dict,
     new_user_image: bool,
+    delete_video: bool,
     _: TokenData = Depends(check_user_token)
 ):
     """
@@ -572,7 +573,7 @@ async def create_or_update_user_profile(
 
     try:
         # Вызываем функцию сохранения профиля
-        return await save_profile_to_db_without_video(form_data, image_data, created_dirs, new_user_image)
+        return await save_profile_to_db_without_video(form_data, image_data, created_dirs, new_user_image, delete_video)
     except Exception as e:
         logger.error(f"Ошибка в эндпоинте /save_profile_without_video/: {str(e)}")
         raise HTTPException(
