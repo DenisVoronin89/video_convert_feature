@@ -128,15 +128,15 @@ MIME-тип или расширение, но на самом деле явля�
     ],
     "is_in_mlm": 1,
     "is_incognito": false,
-    "name": "John V Rot Berun",
+    "name": "Трахтенберг",
     "wallet_number": "0x27b0B8cfa07fA60f36Ad953F679D36EBC7d4355",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/6c73d933-3993-4c8e-bf27-a4f77a1244e9_orig_cat.webp"
+    "image_path": "./image_temp/000f0a72-7829-4655-a392-ae65e3144bdf_orig_cat.webp"
   },
   "video_data": {
-    "video_path": "./video_temp/8121675a-0591-46bb-98f4-5df711e5d38e_cat_cat.mp4"
+    "video_path": "./video_temp/1ec965e1-afcf-4c49-853b-4e7ce9155939_mock_1.mp4"
   }
 }
 

@@ -116,7 +116,7 @@ async def start_scheduler():
         IntervalTrigger(minutes=5),  # Триггер (интервал 5 минут)
         args=[redis_client]  # Аргументы для функции
     )
-    logger.info("Задача fetch_and_cache_profiles добавлена в расписание (каждые 5 минут).")
+    logger.info("Задача fetch_and_cache_profiles добавлена в расписание (каждые 8 минут).")
 
     # Задача, которая выполняется каждые 8 минут (синхронизация данных из Redis в БД)
     scheduler.add_job(
@@ -432,7 +432,13 @@ async def check_form(data: FormData, current_user: TokenData = Depends(check_use
 
 # Эндпоинт сохранения профиля
 @app.post("/save_profile/")
-async def save_profile(profile_data: FormData, image_data: dict, video_data: dict, _: TokenData = Depends(check_user_token)):
+async def save_profile(
+    profile_data: FormData,
+    image_data: dict,
+    video_data: dict,
+    new_user_image: bool = True,  # Новый параметр
+    _: TokenData = Depends(check_user_token)
+):
     """
     Получение данных профиля из формы, пути к изображению и видео (в виде JSON),
     проверка путей и отправка задачи на обработку в Redis.
@@ -443,7 +449,7 @@ async def save_profile(profile_data: FormData, image_data: dict, video_data: dic
     # Сериализация данных формы (HttpUrl в строку)
     form_data_dict = await serialize_form_data(form_data_dict)
 
-    # Лог полученных данных(смотреть что полетит в канал)
+    # Лог полученных данных (смотреть что полетит в канал)
     logger.info(f"Получены данные профиля: {form_data_dict}")
     logger.info(f"Получены данные о изображении: {image_data}")
     logger.info(f"Получены данные о видео: {video_data}")
@@ -465,8 +471,11 @@ async def save_profile(profile_data: FormData, image_data: dict, video_data: dic
         image_path = image_data.get("image_path")
         video_path = video_data.get("video_path")
 
-        if not image_path or not video_path:
-            raise ValueError("Пути к файлам не были найдены в данных JSON.")
+        if not video_path:
+            raise ValueError("Путь к видео не был найден в данных JSON.")
+
+        if new_user_image and not image_path:
+            raise ValueError("Путь к изображению не был найден в данных JSON.")
 
         logger.info(f"Путь к изображению: {image_path}")
         logger.info(f"Путь к видео: {video_path}")
@@ -482,30 +491,38 @@ async def save_profile(profile_data: FormData, image_data: dict, video_data: dic
         raise HTTPException(status_code=500, detail="Ошибка при инициализации каталогов.")
 
     # Преобразование путей в абсолютные, если они относительные
-    absolute_image_path = os.path.abspath(image_path)
     absolute_video_path = os.path.abspath(video_path)
-
-    logger.info(f"Абсолютный путь к изображению: {absolute_image_path}")
     logger.info(f"Абсолютный путь к видео: {absolute_video_path}")
-
-    # Проверка существования изображения
-    if not os.path.isfile(absolute_image_path):
-        logger.error(f"Путь к изображению не ведет к файлу: {absolute_image_path}")
-        raise HTTPException(status_code=400, detail="Указанный путь к изображению не ведет к файлу.")
 
     # Проверка существования видео
     if not os.path.isfile(absolute_video_path):
         logger.error(f"Путь к видео не ведет к файлу: {absolute_video_path}")
         raise HTTPException(status_code=400, detail="Указанный путь к видео не ведет к файлу.")
 
-    # Перенос изображения в постоянную папку "user_logo"
-    try:
-        # Перенос изображения и получение пути
-        user_logo_path = await move_image_to_user_logo(absolute_image_path, created_dirs)
-        logger.info(f"Изображение успешно перемещено в постоянную папку: {user_logo_path}")
-    except Exception as e:
-        logger.error(f"Ошибка при перемещении изображения: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Ошибка при перемещении изображения: {str(e)}")
+    # Обработка изображения
+    user_logo_path = None
+    if new_user_image:
+        # Если new_user_image == True, обрабатываем новое изображение
+        absolute_image_path = os.path.abspath(image_path)
+        logger.info(f"Абсолютный путь к изображению: {absolute_image_path}")
+
+        # Проверка существования изображения
+        if not os.path.isfile(absolute_image_path):
+            logger.error(f"Путь к изображению не ведет к файлу: {absolute_image_path}")
+            raise HTTPException(status_code=400, detail="Указанный путь к изображению не ведет к файлу.")
+
+        # Перенос изображения в постоянную папку "user_logo"
+        try:
+            # Перенос изображения и получение пути
+            user_logo_path = await move_image_to_user_logo(absolute_image_path, created_dirs)
+            logger.info(f"Изображение успешно перемещено в постоянную папку: {user_logo_path}")
+        except Exception as e:
+            logger.error(f"Ошибка при перемещении изображения: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Ошибка при перемещении изображения: {str(e)}")
+    else:
+        # Если new_user_image == False, используем существующее изображение
+        user_logo_path = image_path  # Берём ссылку на изображение из image_data
+        logger.info(f"Используется существующее изображение: {user_logo_path}")
 
     # Преобразование user_logo_path в строку, так как это объект HttpUrl (TODO объединить бы с сериализацией формы)
     if isinstance(user_logo_path, HttpUrl):
@@ -517,7 +534,7 @@ async def save_profile(profile_data: FormData, image_data: dict, video_data: dic
 
         # Подключение к Redis из состояния приложения
         redis_client = app.state.redis_client
-        logger.info("Соединение с Redis  для публикации задачи в канал установлено.")
+        logger.info("Соединение с Redis для публикации задачи в канал установлено.")
 
         # Лог задачи перед отправкой в Redis
         logger.info(f"Публикуемые данные в Redis: {{"
@@ -534,7 +551,7 @@ async def save_profile(profile_data: FormData, image_data: dict, video_data: dic
             input_path=absolute_video_path,  # Путь к видео
             output_path=created_dirs["output_video"],  # Путь для итогового видео
             preview_path=created_dirs["output_preview"],  # Путь для превью
-            user_logo_url=user_logo_path,  # Путь к изображению, которое переехало в постоянную папку на сервере
+            user_logo_url=user_logo_path,  # Путь к изображению
             wallet_number=hashed_wallet_number,  # Кошелек
             form_data=form_data_dict  # Данные формы для сохранения в БД
         )
