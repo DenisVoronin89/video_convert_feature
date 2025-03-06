@@ -196,23 +196,43 @@ async def remove_from_favorites(user_id: int, profile_id: int):
 # Получение списка избранных из кэша
 async def get_favorites_from_cache(user_id: int) -> List[dict]:
     """
-    Получение списка избранных из кэша и полной информации по каждому избранному профилю.
+    Получение списка избранных профилей. Сначала проверяет Redis, затем базу данных.
 
     :param user_id: ID пользователя.
     :return: Список профилей с полной информацией (или пустой список, если данных нет).
     """
     try:
-        # Получаем список ID избранных профилей из Redis
+        # 1. Попытка получить избранное из Redis
+        logger.info(f"Попытка получить избранное из кэша Redis для пользователя {user_id}.")
         favorites = await redis_client.smembers(f'favorites:{user_id}')
+
+        # Если в Redis ничего нет, лезем в базу данных
         if not favorites:
-            logger.info(f"Нет избранных профилей в кэше для пользователя {user_id}.")
-            return []
+            logger.info(f"Избранное не найдено в кэше для пользователя {user_id}. Загружаем из базы данных.")
+            async with get_db_session_for_worker() as session:
+                # Запрос к таблице Favorite для получения избранных профилей
+                favorite_stmt = select(Favorite).filter(Favorite.user_id == user_id)
+                favorite_result = await session.execute(favorite_stmt)
+                favorites_from_db = favorite_result.scalars().all()
 
-        # Преобразуем ID из строк в числа
-        favorite_ids = [int(favorite) for favorite in favorites]
-        logger.info(f"Получены избранные профили для пользователя {user_id}: {favorite_ids}")
+                # Если в базе данных тоже ничего нет, возвращаем пустой список
+                if not favorites_from_db:
+                    logger.info(f"У пользователя {user_id} нет избранных профилей.")
+                    return []
 
-        # Получаем полную информацию по каждому избранному профилю
+                # Получаем список ID избранных профилей из базы данных
+                favorite_ids = [favorite.profile_id for favorite in favorites_from_db]
+                logger.info(f"Избранное загружено из базы данных: {favorite_ids}")
+
+                # Сохраняем избранное в Redis для будущих запросов
+                await redis_client.sadd(f'favorites:{user_id}', *favorite_ids)
+                logger.info(f"Избранное пользователя {user_id} сохранено в Redis.")
+        else:
+            # Если избранное найдено в Redis, преобразуем ID из строк в числа
+            favorite_ids = [int(favorite) for favorite in favorites]
+            logger.info(f"Избранное получено из кэша: {favorite_ids}")
+
+        # 2. Получаем полную информацию по каждому избранному профилю
         profiles = await get_profiles_by_ids(favorite_ids)
         return profiles
 
@@ -469,6 +489,13 @@ async def get_profiles_by_hashtag(
 
 # Получение профилей по id
 async def get_profiles_by_ids(profile_ids: List[int]) -> List[dict]:
+    """
+    Получает профили по их ID, сначала проверяя Redis, затем базу данных.
+
+    :param profile_ids: Список ID профилей для поиска.
+    :return: Список профилей в виде словарей.
+    :raises HTTPException: Если произошла ошибка при получении данных.
+    """
     try:
         profiles_from_redis = []
         missing_ids = []
@@ -484,7 +511,7 @@ async def get_profiles_by_ids(profile_ids: List[int]) -> List[dict]:
         # Лог: Сколько данных найдено в Redis
         logger.info(f"Найдено {len(profiles_from_redis)} профилей в Redis. Отсутствует {len(missing_ids)} профилей.")
 
-        # Шаг 2: Если в Redis нихуя нет, лезем в БД
+        # Шаг 2: Если в Redis ничего нет, лезем в БД
         if missing_ids:
             logger.info(f"Загружаем {len(missing_ids)} профилей из базы данных...")
             async with get_db_session_for_worker() as session:
@@ -1020,67 +1047,67 @@ async def fetch_and_cache_profiles(redis_client: redis.Redis) -> tuple[int, int]
 
 
 # Функция для получения данных страницы из Redis
-async def get_page_data_from_cache(
-    page_number: int,
-    redis_client: redis.Redis,
-    total_profiles: int,
-    total_pages: int
-) -> Dict:
-    """
-    Возвращает данные страницы из Redis.
-    Если страница не существует, возвращает сообщение о завершении просмотра.
-
-    :param page_number: Номер страницы.
-    :param redis_client: Клиент Redis.
-    :param total_profiles: Общее количество профилей.
-    :param total_pages: Общее количество страниц.
-    :return: Данные страницы или сообщение о завершении.
-    """
-    try:
-        cache_key = f"page_{page_number}"
-        page_profiles = await redis_client.get(cache_key)
-
-        if not page_profiles:
-            logger.warning(f"Страница {page_number} не найдена в Redis.")
-            return {
-                "theme": "Макс, это для тебя корешок ^^",  # Сообщение на фронт
-                "page_number": page_number,
-                "total_profiles": total_profiles,
-                "total_pages": total_pages,
-                "message": "Страница не найдена.",
-                "profiles": [],
-            }
-
-        # Обновляем TTL ключа на 12 часов (передаём секунды напрямую)
-        await redis_client.expire(cache_key, CACHE_PROFILES_TTL_SEK)
-
-        profiles = json.loads(page_profiles)
-        logger.info(f"Получено {len(profiles)} профилей для страницы {page_number} из Redis.")
-
-        # Проверяем, является ли текущая страница последней и неполной
-        is_last_page = page_number == total_pages
-        is_incomplete_page = len(profiles) < 50
-
-        # Формируем сообщение
-        offset = (page_number - 1) * 50
-        end_index = offset + len(profiles)  # Корректный конечный индекс
-        message = f"Показаны профили {offset + 1}-{end_index} из {total_profiles}."
-
-        if is_last_page and is_incomplete_page:
-            message += " Это последняя страница. Начните просмотр профилей со страницы номер 1."
-
-        return {
-            "theme": "Макс, это для тебя корешок ^^",  # Сообщение на фронт
-            "page_number": page_number,
-            "total_profiles": total_profiles,
-            "total_pages": total_pages,
-            "message": message,
-            "profiles": profiles,
-        }
-
-    except Exception as e:
-        logger.error(f"Ошибка при получении страницы {page_number} из Redis: {str(e)}")
-        raise
+# async def get_page_data_from_cache(
+#     page_number: int,
+#     redis_client: redis.Redis,
+#     total_profiles: int,
+#     total_pages: int
+# ) -> Dict:
+#     """
+#     Возвращает данные страницы из Redis.
+#     Если страница не существует, возвращает сообщение о завершении просмотра.
+#
+#     :param page_number: Номер страницы.
+#     :param redis_client: Клиент Redis.
+#     :param total_profiles: Общее количество профилей.
+#     :param total_pages: Общее количество страниц.
+#     :return: Данные страницы или сообщение о завершении.
+#     """
+#     try:
+#         cache_key = f"page_{page_number}"
+#         page_profiles = await redis_client.get(cache_key)
+#
+#         if not page_profiles:
+#             logger.warning(f"Страница {page_number} не найдена в Redis.")
+#             return {
+#                 "theme": "Макс, это для тебя корешок ^^",  # Сообщение на фронт
+#                 "page_number": page_number,
+#                 "total_profiles": total_profiles,
+#                 "total_pages": total_pages,
+#                 "message": "Страница не найдена.",
+#                 "profiles": [],
+#             }
+#
+#         # Обновляем TTL ключа на 12 часов (передаём секунды напрямую)
+#         await redis_client.expire(cache_key, CACHE_PROFILES_TTL_SEK)
+#
+#         profiles = json.loads(page_profiles)
+#         logger.info(f"Получено {len(profiles)} профилей для страницы {page_number} из Redis.")
+#
+#         # Проверяем, является ли текущая страница последней и неполной
+#         is_last_page = page_number == total_pages
+#         is_incomplete_page = len(profiles) < 50
+#
+#         # Формируем сообщение
+#         offset = (page_number - 1) * 50
+#         end_index = offset + len(profiles)  # Корректный конечный индекс
+#         message = f"Показаны профили {offset + 1}-{end_index} из {total_profiles}."
+#
+#         if is_last_page and is_incomplete_page:
+#             message += " Это последняя страница. Начните просмотр профилей со страницы номер 1."
+#
+#         return {
+#             "theme": "Макс, это для тебя корешок ^^",  # Сообщение на фронт
+#             "page_number": page_number,
+#             "total_profiles": total_profiles,
+#             "total_pages": total_pages,
+#             "message": message,
+#             "profiles": profiles,
+#         }
+#
+#     except Exception as e:
+#         logger.error(f"Ошибка при получении страницы {page_number} из Redis: {str(e)}")
+#         raise
 
 
 # Функция для получения профилей из Редиски, если пришел запрос на сортировку пагинируем из сортированных списков

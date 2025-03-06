@@ -274,19 +274,15 @@ async def login(
                     "language": profile.language,
                 }
 
-            # Попытка получить избранное из Redis
-            logger.info("Попытка получить избранное из кэша Redis.")
-            favorite_ids = await get_favorites_from_cache(user.id)
+            # Получаем избранное через get_favorites_from_cache
+            logger.info("Получение избранного через get_favorites_from_cache.")
+            favorites = await get_favorites_from_cache(user.id)
+            favorite_ids = [profile["id"] for profile in favorites]  # Извлекаем ID избранных профилей
+            logger.info(f"Избранное получено: {favorite_ids}")
 
-            if not favorite_ids:
-                logger.info("Избранное не найдено в кэше. Загружаем из базы данных.")
-                favorite_stmt = select(Favorite).filter(Favorite.user_id == user.id)
-                favorite_result = await session.execute(favorite_stmt)
-                favorites = favorite_result.scalars().all()
-                favorite_ids = [favorite.profile_id for favorite in favorites]
-                logger.info(f"Избранное загружено из БД: {favorite_ids}")
-            else:
-                logger.info(f"Избранное получено из кэша: {favorite_ids}")
+            # Получаем полную информацию о избранных профилях
+            logger.info("Получение полной информации о избранных профилях.")
+            favorite_profiles = await get_profiles_by_ids(favorite_ids)
 
             # Генерация токенов
             logger.info("Генерация токенов для пользователя.")
@@ -297,7 +293,7 @@ async def login(
             response_data = {
                 "id": user.id,
                 "profile": profile_data,
-                "favorites": favorite_ids,
+                "favorites": favorite_profiles,  # Теперь это список профилей с полной информацией
                 "tokens": tokens,
             }
 
@@ -314,7 +310,7 @@ async def login(
 
             # Профиль и избранное не запрашиваются, так как пользователь только что создан.
             profile_data = None
-            favorite_ids = []
+            favorite_profiles = []
 
             # Генерация токенов
             logger.info("Генерация токенов для пользователя.")
@@ -325,7 +321,7 @@ async def login(
             response_data = {
                 "id": user.id,
                 "profile": profile_data,
-                "favorites": favorite_ids,
+                "favorites": favorite_profiles,  # Пустой список, так как избранного нет
                 "tokens": tokens,
             }
 
@@ -609,17 +605,41 @@ async def add_to_favorites_and_increment(
     redis_client: redis.Redis = Depends(get_redis_client),
     _: TokenData = Depends(check_user_token)
 ):
-    """ Добавить профиль в избранное пользователя и увеличить счётчик подписчиков """
+    """
+    Добавить профиль в избранное пользователя, увеличить счётчик подписчиков
+    и вернуть обновлённую информацию о профиле и списке избранного.
+
+    :param user_id: ID пользователя, который добавляет в избранное.
+    :param profile_id: ID профиля, который добавляется в избранное.
+    :return: Обновлённая информация о профиле и списке избранного.
+    """
     try:
+        # 1. Добавляем профиль в избранное
         add_status = await add_to_favorites(user_id=user_id, profile_id=profile_id)
         if add_status.get("status") == "already_in_favorites":
             return {"сообщение": f"Профиль {profile_id} уже в избранном"}
 
+        # 2. Увеличиваем счётчик подписчиков
         new_count = await increment_subscribers_count(profile_id=profile_id)
+
+        # 3. Получаем информацию о добавленном профиле
+        added_profile_info = await get_profiles_by_ids([profile_id])
+        if not added_profile_info:
+            raise HTTPException(status_code=404, detail=f"Профиль {profile_id} не найден.")
+
+        # 4. Получаем обновлённый список избранного для пользователя
+        favorites_list = await get_favorites_from_cache(user_id)
+
+        # 5. Формируем ответ
         return {
-            "сообщение": f"Профиль {profile_id} добавлен в избранное",
-            "новое количество подписчиков": new_count,
+            "message": f"Профиль {profile_id} добавлен в избранное",
+            "new_subscriber_count_for_added_user": new_count,
+            "added_profile": added_profile_info[0],  # Информация о добавленном профиле
+            "favorites": favorites_list  # Обновлённый список избранного
         }
+
+    except HTTPException as e:
+        raise e  # Пробрасываем HTTPException как есть
     except Exception as e:
         logger.error(f"Ошибка при добавлении профиля {profile_id} в избранное: {str(e)}")
         raise HTTPException(status_code=500, detail="Ошибка сервера")
