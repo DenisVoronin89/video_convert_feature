@@ -511,16 +511,26 @@ async def get_profiles_by_ids(profile_ids: List[int]) -> List[dict]:
         # Лог: Сколько данных найдено в Redis
         logger.info(f"Найдено {len(profiles_from_redis)} профилей в Redis. Отсутствует {len(missing_ids)} профилей.")
 
-        # Шаг 2: Если в Redis ничего нет, лезем в БД
+        # Шаг 2: Если в Redis чего-то нет, лезем в БД
         if missing_ids:
             logger.info(f"Загружаем {len(missing_ids)} профилей из базы данных...")
             async with get_db_session_for_worker() as session:
+                # Формируем запрос
                 query = (
                     select(UserProfiles)
                     .where(UserProfiles.id.in_(missing_ids))  # Ищем только недостающие
                 )
+                # Выполняем запрос
                 result = await session.execute(query)
                 profiles_from_db = result.scalars().all()  # Данные из БД
+
+                # Лог: Сколько профилей найдено в БД
+                logger.info(f"Найдено {len(profiles_from_db)} профилей в базе данных.")
+
+                # Если данные отсутствуют и в БД, возвращаем пустой список
+                if not profiles_from_db:
+                    logger.info(f"Профили с ID {missing_ids} отсутствуют в базе данных.")
+                    return profiles_from_redis
 
                 # Обрабатываем данные из БД
                 processed_profiles = []
@@ -528,7 +538,26 @@ async def get_profiles_by_ids(profile_ids: List[int]) -> List[dict]:
                     profile_data = {
                         "id": profile.id,
                         "name": profile.name,
-                        # ... остальные поля ...
+                        "user_logo_url": profile.user_logo_url,
+                        "video_url": profile.video_url,
+                        "preview_url": profile.preview_url,
+                        "activity_and_hobbies": profile.activity_and_hobbies,
+                        "is_moderated": profile.is_moderated,
+                        "is_incognito": profile.is_incognito,
+                        "is_in_mlm": profile.is_in_mlm,
+                        "adress": profile.adress,
+                        "city": profile.city,
+                        "coordinates": profile.coordinates,
+                        "followers_count": profile.followers_count,
+                        "created_at": profile.created_at.isoformat(),
+                        "hashtags": [tag.tag for tag in profile.hashtags],
+                        "website_or_social": profile.website_or_social,
+                        "is_admin": profile.is_admin,
+                        "language": profile.language,
+                        "user": {
+                            "id": profile.user.id,
+                            "wallet_number": profile.user.wallet_number
+                        }
                     }
                     processed_profiles.append(profile_data)
 

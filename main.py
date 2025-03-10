@@ -280,9 +280,9 @@ async def login(
             favorite_ids = [profile["id"] for profile in favorites]  # Извлекаем ID избранных профилей
             logger.info(f"Избранное получено: {favorite_ids}")
 
-            # Получаем полную информацию о избранных профилях
-            logger.info("Получение полной информации о избранных профилях.")
-            favorite_profiles = await get_profiles_by_ids(favorite_ids)
+            # # Получаем полную информацию о избранных профилях
+            # logger.info("Получение полной информации о избранных профилях.")
+            # favorite_profiles = await get_profiles_by_ids(favorite_ids)
 
             # Генерация токенов
             logger.info("Генерация токенов для пользователя.")
@@ -293,7 +293,7 @@ async def login(
             response_data = {
                 "id": user.id,
                 "profile": profile_data,
-                "favorites": favorite_profiles,  # Теперь это список профилей с полной информацией
+                "favorites": favorites,  # Теперь это список профилей с полной информацией
                 "tokens": tokens,
             }
 
@@ -607,39 +607,45 @@ async def add_to_favorites_and_increment(
 ):
     """
     Добавить профиль в избранное пользователя, увеличить счётчик подписчиков
-    и вернуть обновлённую информацию о профиле и списке избранного.
+    и вернуть обновлённый список избранного.
 
     :param user_id: ID пользователя, который добавляет в избранное.
     :param profile_id: ID профиля, который добавляется в избранное.
-    :return: Обновлённая информация о профиле и списке избранного.
+    :return: Обновлённый список избранного и новое значение счётчика подписчиков.
     """
     try:
-        # 1. Добавляем профиль в избранное
-        add_status = await add_to_favorites(user_id=user_id, profile_id=profile_id)
-        if add_status.get("status") == "already_in_favorites":
-            return {"сообщение": f"Профиль {profile_id} уже в избранном"}
+        logger.info(f"Начало обработки запроса для user_id={user_id}, profile_id={profile_id}")
 
-        # 2. Увеличиваем счётчик подписчиков
-        new_count = await increment_subscribers_count(profile_id=profile_id)
+        # 1. Проверяем, есть ли профиль уже в избранном
+        is_favorite = await redis_client.sismember(f"user:{user_id}:favorites", profile_id)
+        if is_favorite:
+            logger.info(f"Профиль {profile_id} уже в избранном у пользователя {user_id}")
+            return {
+                "message": f"Профиль {profile_id} уже в избранном",
+                "user_id": user_id,
+                "favorites": await get_favorites_from_cache(user_id),
+                "new_subscriber_count": await get_subscribers_count(profile_id)
+            }
 
-        # 3. Получаем информацию о добавленном профиле
-        added_profile_info = await get_profiles_by_ids([profile_id])
-        if not added_profile_info:
-            raise HTTPException(status_code=404, detail=f"Профиль {profile_id} не найден.")
+        # 2. Добавляем профиль в избранное
+        await redis_client.sadd(f"user:{user_id}:favorites", profile_id)
+        logger.info(f"Профиль {profile_id} добавлен в избранное пользователя {user_id}")
 
-        # 4. Получаем обновлённый список избранного для пользователя
+        # 3. Увеличиваем счётчик подписчиков
+        new_count = await increment_subscribers_count(profile_id)
+        logger.info(f"Счётчик подписчиков для профиля {profile_id} увеличен до {new_count}")
+
+        # 4. Получаем обновлённый список избранного
         favorites_list = await get_favorites_from_cache(user_id)
 
         # 5. Формируем ответ
         return {
             "message": f"Профиль {profile_id} добавлен в избранное",
-            "new_subscriber_count_for_added_user": new_count,
-            "added_profile": added_profile_info[0],  # Информация о добавленном профиле
-            "favorites": favorites_list  # Обновлённый список избранного
+            "user_id": user_id,
+            "favorites": favorites_list,
+            "new_subscriber_count": new_count
         }
 
-    except HTTPException as e:
-        raise e  # Пробрасываем HTTPException как есть
     except Exception as e:
         logger.error(f"Ошибка при добавлении профиля {profile_id} в избранное: {str(e)}")
         raise HTTPException(status_code=500, detail="Ошибка сервера")
@@ -653,17 +659,47 @@ async def remove_from_favorites_and_decrement(
     redis_client: redis.Redis = Depends(get_redis_client),
     _: TokenData = Depends(check_user_token)
 ):
-    """ Удалить профиль из избранного пользователя и уменьшить счётчик подписчиков """
-    try:
-        remove_status = await remove_from_favorites(user_id=user_id, profile_id=profile_id)
-        if remove_status.get("status") == "not_in_favorites":
-            return {"сообщение": f"Профиль {profile_id} не был в избранном у пользователя{user_id}"}
+    """
+    Удалить профиль из избранного пользователя, уменьшить счётчик подписчиков
+    и вернуть обновлённый список избранного.
 
-        new_count = await decrement_subscribers_count(profile_id=profile_id)
+    :param user_id: ID пользователя, который удаляет из избранного.
+    :param profile_id: ID профиля, который удаляется из избранного.
+    :return: Обновлённый список избранного и новое значение счётчика подписчиков.
+    """
+    try:
+        logger.info(f"Начало обработки запроса для user_id={user_id}, profile_id={profile_id}")
+
+        # 1. Проверяем, есть ли профиль в избранном
+        is_favorite = await redis_client.sismember(f"user:{user_id}:favorites", profile_id)
+        if not is_favorite:
+            logger.info(f"Профиль {profile_id} не был в избранном у пользователя {user_id}")
+            return {
+                "message": f"Профиль {profile_id} не был в избранном у пользователя {user_id}",
+                "user_id": user_id,
+                "favorites": await get_favorites_from_cache(user_id),
+                "new_subscriber_count": await get_subscribers_count(profile_id)
+            }
+
+        # 2. Удаляем профиль из избранного
+        await redis_client.srem(f"user:{user_id}:favorites", profile_id)
+        logger.info(f"Профиль {profile_id} удалён из избранного пользователя {user_id}")
+
+        # 3. Уменьшаем счётчик подписчиков
+        new_count = await decrement_subscribers_count(profile_id)
+        logger.info(f"Счётчик подписчиков для профиля {profile_id} уменьшен до {new_count}")
+
+        # 4. Получаем обновлённый список избранного
+        favorites_list = await get_favorites_from_cache(user_id)
+
+        # 5. Формируем ответ
         return {
-            "сообщение": f"Профиль {profile_id} удалён из избранного у пользователя{user_id}",
-            "новое количество подписчиков": new_count,
+            "message": f"Профиль {profile_id} удалён из избранного",
+            "user_id": user_id,
+            "favorites": favorites_list,
+            "new_subscriber_count": new_count
         }
+
     except Exception as e:
         logger.error(f"Ошибка при удалении профиля {profile_id} из избранного: {str(e)}")
         raise HTTPException(status_code=500, detail="Ошибка сервера")
