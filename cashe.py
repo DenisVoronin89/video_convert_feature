@@ -788,21 +788,28 @@ async def save_profile_to_db_without_video(
                         # Фиксируем новые хэштеги в базе данных
                         await session.flush()
 
+                        # Получаем существующие связи профиля с хэштегами
+                        existing_profile_hashtags_stmt = select(ProfileHashtag).where(ProfileHashtag.profile_id == profile.id)
+                        existing_profile_hashtags_result = await session.execute(existing_profile_hashtags_stmt)
+                        existing_profile_hashtags = {ph.hashtag_id: ph for ph in existing_profile_hashtags_result.scalars().all()}
+
                         # Теперь создаем связи между профилем и хэштегами
                         for hashtag in hashtags_list:
                             if hashtag not in existing_hashtags:
                                 # Находим новый хэштег в списке new_hashtags
                                 new_hashtag = next((h for h in new_hashtags if h.tag == hashtag), None)
                                 if new_hashtag:
-                                    # Добавление связи между профилем и новым хэштегом
-                                    profile_hashtag = ProfileHashtag(profile_id=profile.id,
-                                                                     hashtag_id=new_hashtag.id)
-                                    session.add(profile_hashtag)
+                                    # Проверяем, существует ли уже связь с этим хэштегом
+                                    if new_hashtag.id not in existing_profile_hashtags:
+                                        # Добавление связи между профилем и новым хэштегом
+                                        profile_hashtag = ProfileHashtag(profile_id=profile.id, hashtag_id=new_hashtag.id)
+                                        session.add(profile_hashtag)
                             else:
-                                # Привязка существующего хэштега к профилю через таблицу ProfileHashtag
-                                profile_hashtag = ProfileHashtag(profile_id=profile.id,
-                                                                 hashtag_id=existing_hashtags[hashtag].id)
-                                session.add(profile_hashtag)
+                                # Проверяем, существует ли уже связь с этим хэштегом
+                                if existing_hashtags[hashtag].id not in existing_profile_hashtags:
+                                    # Привязка существующего хэштега к профилю через таблицу ProfileHashtag
+                                    profile_hashtag = ProfileHashtag(profile_id=profile.id, hashtag_id=existing_hashtags[hashtag].id)
+                                    session.add(profile_hashtag)
 
                         logger.info(f"Хэштеги добавлены/обновлены для профиля пользователя {user.id}")
 
