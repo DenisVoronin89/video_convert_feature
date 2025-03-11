@@ -5,6 +5,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+import os
+from dotenv import load_dotenv
 
 from models import Base
 
@@ -12,7 +14,9 @@ from logging_config import get_logger
 
 logger = get_logger()
 
-DATABASE_URL = "postgresql+asyncpg://admin:admin1224@postgres/stt_video_app"
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Конфиги БД
 engine = create_async_engine(DATABASE_URL, echo=True)  # echo=True(для логов)

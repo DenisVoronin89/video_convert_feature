@@ -4,6 +4,7 @@ import aiofiles
 import hashlib
 import random
 from math import ceil # Импортируем ceil для округления вверх
+from dotenv import load_dotenv
 from uuid import uuid4
 from fastapi import UploadFile, HTTPException, status, Query
 from geoalchemy2.shape import to_shape
@@ -29,8 +30,10 @@ from logging_config import get_logger
 
 logger = get_logger()
 
-# Big Boss Royal Wallet Executor  TODO В Енв файл добавить перед деплоем!!!
-ROYAL_WALLET = "f789e481a037797a0625c7e76093f1da44c4dea77c3faf6f1a838a9e9fab529e"
+load_dotenv()
+
+# Big Boss Royal Wallet Executor (Ты знаешь для чего)
+ROYAL_WALLET = os.getenv("ROYAL_WALLET")
 
 # Настраиваем соединение с Redis
 redis_client = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
@@ -165,6 +168,13 @@ async def move_image_to_user_logo(image_path: str, created_dirs: dict) -> str:
     except Exception as e:
         logger.error(f"Ошибка при перемещении изображения в директорию user_logo: {e}")
         raise HTTPException(status_code=500, detail="Не удалось переместить изображение в директорию user_logo")
+
+
+
+
+
+
+
 
 
 # Получение всех профилей по тому же алгоритму или сортировке по новизне/популярности
@@ -649,14 +659,17 @@ async def fetch_nearby_profiles(longitude: float, latitude: float, radius: int =
 
 # Функция для выборки и отправки профилей на модерацию
 async def get_profiles_for_moderation(
-    admin_wallet: str, page: int
+    user_id: int,  # ID пользователя из токена
+    page: int = 1,
+    per_page: int = 50
 ) -> dict:
     """
     Получает профили для модерации, если запрос пришел от администратора.
 
     Параметры:
-        admin_wallet (str): Кошелек администратора, который запрашивает профили.
+        user_id (int): ID пользователя, который запрашивает профили.
         page (int): Номер страницы (начинается с 1).
+        per_page (int): Количество профилей на страницу (50–100).
 
     Возвращает:
         dict: Словарь с данными о профилях, включая пагинацию и общее количество.
@@ -666,28 +679,16 @@ async def get_profiles_for_moderation(
     """
     try:
         async with get_db_session_for_worker() as session:
-            # Хэшируем кошелек администратора
-            hashed_admin_wallet = hashlib.sha256(admin_wallet.encode()).hexdigest()
-
-            # Находим пользователя по хэшированному кошельку
-            user_query = select(User).filter(User.wallet_number == hashed_admin_wallet)
-            user_result = await session.execute(user_query)
-            user = user_result.scalar()
-
-            if not user:
-                logger.warning(f"Пользователь с кошельком {admin_wallet} не найден.")
-                raise HTTPException(status_code=404, detail="Пользователь не найден.")
-
-            # Проверяем, что у пользователя есть профиль и флаг is_admin = True
+            # Проверяем, что пользователь является администратором
             admin_profile_query = (
                 select(UserProfiles)
-                .filter(UserProfiles.user_id == user.id, UserProfiles.is_admin == True)
+                .filter(UserProfiles.user_id == user_id, UserProfiles.is_admin == True)
             )
             admin_profile_result = await session.execute(admin_profile_query)
             admin_profile = admin_profile_result.scalar()
 
             if not admin_profile:
-                logger.warning(f"Пользователь {admin_wallet} не является администратором.")
+                logger.warning(f"Пользователь {user_id} не является администратором.")
                 raise HTTPException(status_code=403, detail="Только администраторы могут запрашивать профили для модерации.")
 
             # Запрос для получения профилей на модерацию (is_moderated = False)
@@ -700,8 +701,10 @@ async def get_profiles_for_moderation(
                 )
             )
 
-            # Пагинация: 25 профилей на страницу
-            per_page = 25
+            # Пагинация
+            if per_page < 50 or per_page > 100:
+                raise HTTPException(status_code=400, detail="Параметр per_page должен быть в диапазоне 50–100.")
+
             offset = (page - 1) * per_page
             query = query.offset(offset).limit(per_page)
 
@@ -730,7 +733,7 @@ async def get_profiles_for_moderation(
                     "website_or_social": profile.website_or_social,
                     "user": {
                         "id": profile.user.id,
-                        "wallet_number": profile.user.wallet_number,  # Обращаемся к User.wallet_number
+                        "wallet_number": profile.user.wallet_number,
                     },
                     "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
                 }
@@ -757,12 +760,12 @@ async def get_profiles_for_moderation(
 
 
 # Даем права админа с кошелька босса
-async def grant_admin_rights(request_wallet: str, target_wallet: str) -> bool:
+async def grant_admin_rights(user_id: int, target_wallet: str) -> bool:
     """
-    Дает права администратора пользователю, если запрос пришел с правильного кошелька.
+    Дает права администратора пользователю, если запрос пришел от пользователя с ROYAL_WALLET.
 
     Параметры:
-        request_wallet (str): Кошелек, с которого поступил запрос.
+        user_id (int): ID пользователя, который запрашивает выдачу прав.
         target_wallet (str): Кошелек, которому нужно дать права администратора.
 
     Возвращает:
@@ -774,30 +777,37 @@ async def grant_admin_rights(request_wallet: str, target_wallet: str) -> bool:
     # Открываем сессию внутри функции
     async with get_db_session_for_worker() as db:
         try:
-            # Хэшируем кошелек, с которого пришел запрос
-            hashed_request_wallet = hashlib.sha256(request_wallet.encode()).hexdigest()
-
-            # Хэшируем кошелек целевого пользователя
-            hashed_target_wallet = hashlib.sha256(target_wallet.encode()).hexdigest()
-
-            # Проверяем, совпадает ли хэш кошелька, с которого пришел запрос, с royal_wallet
-            if hashed_request_wallet != ROYAL_WALLET:
-                logger.warning(f"Неавторизованный запрос от кошелька: {request_wallet}")
-                return False
-
-            # Находим пользователя по хэшированному кошельку в таблице User
+            # Находим пользователя по user_id
             result = await db.execute(
-                select(User).filter(User.wallet_number == hashed_target_wallet)
+                select(User).filter(User.id == user_id)
             )
             user = result.scalar_one_or_none()
 
             if not user:
+                logger.warning(f"Пользователь с ID {user_id} не найден.")
+                return False
+
+            # Хэшируем кошелек пользователя, который запрашивает выдачу прав
+            hashed_user_wallet = hashlib.sha256(user.wallet_number.encode()).hexdigest()
+
+            # Проверяем, совпадает ли хэшированный кошелек пользователя с ROYAL_WALLET
+            if hashed_user_wallet != ROYAL_WALLET:
+                logger.warning(f"Неавторизованный запрос от пользователя с ID {user_id}.")
+                return False
+
+            # Находим целевого пользователя по кошельку (target_wallet уже хэширован в базе)
+            target_result = await db.execute(
+                select(User).filter(User.wallet_number == target_wallet)
+            )
+            target_user = target_result.scalar_one_or_none()
+
+            if not target_user:
                 logger.warning(f"Пользователь с кошельком {target_wallet} не найден.")
                 return False
 
-            # Находим профиль пользователя по user_id в таблице UserProfiles
+            # Находим профиль целевого пользователя
             profile_result = await db.execute(
-                select(UserProfiles).filter(UserProfiles.user_id == user.id)
+                select(UserProfiles).filter(UserProfiles.user_id == target_user.id)
             )
             user_profile = profile_result.scalar_one_or_none()
 

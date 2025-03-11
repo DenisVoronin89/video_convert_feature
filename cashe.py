@@ -599,11 +599,10 @@ async def save_profile_to_db_without_video(
         # Преобразование данных формы в словарь
         form_data_dict = form_data.dict()
 
-        # Хэшируем номер кошелька
+        # Получаем номер кошелька
         wallet_number = form_data_dict.get("wallet_number")
         if not wallet_number:
             raise ValueError("Номер кошелька не указан.")
-        hashed_wallet_number = hashlib.sha256(wallet_number.encode()).hexdigest()
 
         # Сериализация данных формы (HttpUrl в строку)
         form_data_dict = await serialize_form_data(form_data_dict)
@@ -621,6 +620,7 @@ async def save_profile_to_db_without_video(
             multi_point_wkt = await parse_coordinates(coordinates)
 
         # Если new_user_image == True, обрабатываем новое изображение
+        user_logo_path = None
         if new_user_image:
             # Извлечение путей к файлам из JSON
             try:
@@ -656,15 +656,12 @@ async def save_profile_to_db_without_video(
             except Exception as e:
                 logger.error(f"Ошибка при извлечении путей из JSON: {str(e)}")
                 raise HTTPException(status_code=400, detail="Ошибка при извлечении путей из JSON.")
-        else:
-            # Если new_user_image == False, оставляем старое значение user_logo_url
-            user_logo_path = None  # Это значение не будет использоваться
 
         # Открываем сессию для работы с базой данных
         async with get_db_session_for_worker() as session:
             try:
                 # Ищем пользователя в БД
-                stmt = select(User).where(User.wallet_number == hashed_wallet_number)
+                stmt = select(User).where(User.wallet_number == wallet_number)
                 result = await session.execute(stmt)
                 user = result.scalars().first()
 
@@ -685,7 +682,8 @@ async def save_profile_to_db_without_video(
                     # Обновление данных профиля
                     profile.name = form_data_dict.get("name")
                     profile.website_or_social = form_data_dict.get("website_or_social")
-                    profile.activity_and_hobbies = form_data_dict.get("activity_hobbies") if form_data_dict.get("activity_hobbies") is not None else None
+                    profile.activity_and_hobbies = form_data_dict.get("activity_hobbies") if form_data_dict.get(
+                        "activity_hobbies") is not None else None
                     profile.adress = form_data_dict.get("adress")
                     profile.city = form_data_dict.get("city")
                     profile.coordinates = multi_point_wkt
@@ -720,7 +718,8 @@ async def save_profile_to_db_without_video(
                         is_admin=False,
                         user_id=user.id,
                         language=form_data_dict.get("language"),
-                        user_logo_url=user_logo_path if new_user_image else None,  # Добавляем путь к логотипу только если new_user_image == True
+                        user_logo_url=user_logo_path if new_user_image else None,
+                        # Добавляем путь к логотипу только если new_user_image == True
                         video_url=None,  # Видео отсутствует
                         preview_url=None  # Превью отсутствует
                     )
@@ -731,11 +730,13 @@ async def save_profile_to_db_without_video(
                     await session.flush()
                     profile = new_profile
                     is_new_profile = True  # Устанавливаем флаг, что профиль новый
-                    logger.info(f"Создан профиль для пользователя {user.id}, флаг is_profile_created установлен в True")
+                    logger.info(
+                        f"Создан профиль для пользователя {user.id}, флаг is_profile_created установлен в True")
 
                 # Работа с хэштегами
                 if form_data_dict.get("hashtags"):  # Проверяем, что хэштеги переданы
-                    hashtags_list = [tag.strip().lower().lstrip("#") for tag in form_data_dict["hashtags"] if tag.strip()]
+                    hashtags_list = [tag.strip().lower().lstrip("#") for tag in form_data_dict["hashtags"] if
+                                     tag.strip()]
 
                     if hashtags_list:
                         # Поиск и проверка существующих хэштегов
@@ -763,14 +764,16 @@ async def save_profile_to_db_without_video(
                                 new_hashtag = next((h for h in new_hashtags if h.tag == hashtag), None)
                                 if new_hashtag:
                                     # Добавление связи между профилем и новым хэштегом
-                                    profile_hashtag = ProfileHashtag(profile_id=profile.id, hashtag_id=new_hashtag.id)
+                                    profile_hashtag = ProfileHashtag(profile_id=profile.id,
+                                                                     hashtag_id=new_hashtag.id)
                                     session.add(profile_hashtag)
                             else:
                                 # Привязка существующего хэштега к профилю через таблицу ProfileHashtag
-                                profile_hashtag = ProfileHashtag(profile_id=profile.id, hashtag_id=existing_hashtags[hashtag].id)
+                                profile_hashtag = ProfileHashtag(profile_id=profile.id,
+                                                                 hashtag_id=existing_hashtags[hashtag].id)
                                 session.add(profile_hashtag)
 
-                            logger.info(f"Хэштеги добавлены/обновлены для профиля пользователя {user.id}")
+                        logger.info(f"Хэштеги добавлены/обновлены для профиля пользователя {user.id}")
 
                 # Подтверждаем изменения в БД
                 await session.commit()

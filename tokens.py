@@ -3,14 +3,18 @@ from datetime import datetime, timedelta
 from typing import Optional
 from pydantic import BaseModel
 from fastapi import HTTPException, status
+import os
+from dotenv import load_dotenv
 
 from schemas import Token, TokenData
 from logging_config import get_logger
 
 logger = get_logger()
 
+load_dotenv()
 
-SECRET_KEY = "fasdklj133485u12nkasj9dkachasdn37TYUNVDWDHNcegn37"
+
+SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"  # Алгоритм подписи
 ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Время жизни access токена (в минутах)
 REFRESH_TOKEN_EXPIRE_DAYS = 1  # Время жизни refresh токена (в днях)
@@ -21,9 +25,9 @@ async def create_access_token(data: dict, expires_delta: Optional[timedelta] = N
     try:
         to_encode = data.copy()
         expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-        to_encode.update({"exp": expire})
+        to_encode.update({"exp": expire.timestamp()})  # Добавляем timestamp для exp
 
-        # Генерация токена с использованием правильных параметров
+        # Генерация токена
         encoded_jwt_access = jwt.encode(
             {"alg": ALGORITHM},  # Указываем алгоритм в заголовке
             to_encode,
@@ -40,9 +44,9 @@ async def create_refresh_token(data: dict) -> str:
     try:
         to_encode = data.copy()
         expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-        to_encode.update({"exp": expire})
+        to_encode.update({"exp": expire.timestamp()})  # Добавляем timestamp для exp
 
-        # Генерация токена с использованием правильных параметров
+        # Генерация токена
         encoded_jwt_refresh = jwt.encode(
             {"alg": ALGORITHM},  # Указываем алгоритм в заголовке
             to_encode,
@@ -69,8 +73,18 @@ async def create_tokens(user_id: int) -> Token:
 # Валидация access токена (асинхронно)
 async def verify_access_token(token: str) -> TokenData:
     try:
-        # Используем authlib для декодирования токена
+        # Декодируем токен
         payload = jwt.decode(token, SECRET_KEY)
+
+        # Проверяем срок действия токена
+        expiration_time = payload.get("exp")
+        if expiration_time is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has no expiration time")
+
+        current_time = datetime.utcnow().timestamp()
+        if current_time > expiration_time:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Access token has expired")
+
         return TokenData(**payload)
     except jwt.ExpiredSignatureError:
         logger.warning(f"Access token expired: {token}")
@@ -86,8 +100,18 @@ async def verify_access_token(token: str) -> TokenData:
 # Валидация refresh токена (асинхронно)
 async def verify_refresh_token(token: str) -> TokenData:
     try:
-        # Используем authlib для декодирования токена
+        # Декодируем токен
         payload = jwt.decode(token, SECRET_KEY)
+
+        # Проверяем срок действия токена
+        expiration_time = payload.get("exp")
+        if expiration_time is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has no expiration time")
+
+        current_time = datetime.utcnow().timestamp()
+        if current_time > expiration_time:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has expired")
+
         return TokenData(**payload)
     except jwt.ExpiredSignatureError:
         logger.warning(f"Refresh token expired: {token}")

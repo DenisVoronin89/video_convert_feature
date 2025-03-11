@@ -224,14 +224,9 @@ async def login(
     redis_client: redis.Redis = Depends(get_redis_client)
 ):
     try:
-        # Хешируем номер кошелька
-        logger.info("Начало хеширования номера кошелька.")
-        hashed_wallet_number = hashlib.sha256(wallet_number.encode()).hexdigest()
-        logger.info(f"Хеш номера кошелька: {hashed_wallet_number}")
-
         # Ищем пользователя в БД
         logger.info("Поиск пользователя в базе данных.")
-        stmt = select(User).filter(User.wallet_number == hashed_wallet_number)
+        stmt = select(User).filter(User.wallet_number == wallet_number)
         result = await session.execute(stmt)
         user = result.scalar_one_or_none()
 
@@ -302,7 +297,7 @@ async def login(
         else:
             # Если пользователя нет, создаем нового
             logger.info("Пользователь не найден, создаем нового.")
-            user = User(wallet_number=hashed_wallet_number)
+            user = User(wallet_number=wallet_number)
             session.add(user)
             await session.commit()  # Сохраняем пользователя в БД
             await session.refresh(user)  # Обновляем данные пользователя
@@ -439,31 +434,24 @@ async def save_profile(
     Получение данных профиля из формы, пути к изображению и видео (в виде JSON),
     проверка путей и отправка задачи на обработку в Redis.
     """
-    # Преобразование данных формы в словарь
-    form_data_dict = profile_data.dict()
-
-    # Сериализация данных формы (HttpUrl в строку)
-    form_data_dict = await serialize_form_data(form_data_dict)
-
-    # Лог полученных данных (смотреть что полетит в канал)
-    logger.info(f"Получены данные профиля: {form_data_dict}")
-    logger.info(f"Получены данные о изображении: {image_data}")
-    logger.info(f"Получены данные о видео: {video_data}")
-
-    # Извлечение номера кошелька и хэширование (кошелек с фронта летит)
     try:
+        # Преобразование данных формы в словарь
+        form_data_dict = profile_data.dict()
+
+        # Сериализация данных формы (HttpUrl в строку)
+        form_data_dict = await serialize_form_data(form_data_dict)
+
+        # Лог полученных данных (смотреть что полетит в канал)
+        logger.info(f"Получены данные профиля: {form_data_dict}")
+        logger.info(f"Получены данные о изображении: {image_data}")
+        logger.info(f"Получены данные о видео: {video_data}")
+
+        # Извлечение номера кошелька
         wallet_number = form_data_dict.get("wallet_number")
         if not wallet_number:
             raise ValueError("Номер кошелька не указан.")
 
-        hashed_wallet_number = hashlib.sha256(wallet_number.encode()).hexdigest()
-        logger.info(f"Номер кошелька захэширован: {hashed_wallet_number}")
-    except Exception as e:
-        logger.error(f"Ошибка при хэшировании номера кошелька: {str(e)}")
-        raise HTTPException(status_code=400, detail="Ошибка при обработке номера кошелька.")
-
-    # Извлечение путей к файлам из JSON
-    try:
+        # Извлечение путей к файлам из JSON
         image_path = image_data.get("image_path")
         video_path = video_data.get("video_path")
 
@@ -476,55 +464,50 @@ async def save_profile(
         logger.info(f"Путь к изображению: {image_path}")
         logger.info(f"Путь к видео: {video_path}")
 
-    except Exception as e:
-        logger.error(f"Ошибка при извлечении путей из JSON: {str(e)}")
-        raise HTTPException(status_code=400, detail="Ошибка при извлечении путей из JSON.")
+        # Получение директорий из состояния приложения
+        created_dirs = app.state.created_dirs
+        if not created_dirs:
+            logger.error("Каталоги для сохранения файлов не были инициализированы.")
+            raise HTTPException(status_code=500, detail="Ошибка при инициализации каталогов.")
 
-    # Получение директорий из состояния приложения
-    created_dirs = app.state.created_dirs
-    if not created_dirs:
-        logger.error("Каталоги для сохранения файлов не были инициализированы.")
-        raise HTTPException(status_code=500, detail="Ошибка при инициализации каталогов.")
+        # Преобразование путей в абсолютные, если они относительные
+        absolute_video_path = os.path.abspath(video_path)
+        logger.info(f"Абсолютный путь к видео: {absolute_video_path}")
 
-    # Преобразование путей в абсолютные, если они относительные
-    absolute_video_path = os.path.abspath(video_path)
-    logger.info(f"Абсолютный путь к видео: {absolute_video_path}")
+        # Проверка существования видео
+        if not os.path.isfile(absolute_video_path):
+            logger.error(f"Путь к видео не ведет к файлу: {absolute_video_path}")
+            raise HTTPException(status_code=400, detail="Указанный путь к видео не ведет к файлу.")
 
-    # Проверка существования видео
-    if not os.path.isfile(absolute_video_path):
-        logger.error(f"Путь к видео не ведет к файлу: {absolute_video_path}")
-        raise HTTPException(status_code=400, detail="Указанный путь к видео не ведет к файлу.")
+        # Обработка изображения
+        user_logo_path = None
+        if new_user_image:
+            # Если new_user_image == True, обрабатываем новое изображение
+            absolute_image_path = os.path.abspath(image_path)
+            logger.info(f"Абсолютный путь к изображению: {absolute_image_path}")
 
-    # Обработка изображения
-    user_logo_path = None
-    if new_user_image:
-        # Если new_user_image == True, обрабатываем новое изображение
-        absolute_image_path = os.path.abspath(image_path)
-        logger.info(f"Абсолютный путь к изображению: {absolute_image_path}")
+            # Проверка существования изображения
+            if not os.path.isfile(absolute_image_path):
+                logger.error(f"Путь к изображению не ведет к файлу: {absolute_image_path}")
+                raise HTTPException(status_code=400, detail="Указанный путь к изображению не ведет к файлу.")
 
-        # Проверка существования изображения
-        if not os.path.isfile(absolute_image_path):
-            logger.error(f"Путь к изображению не ведет к файлу: {absolute_image_path}")
-            raise HTTPException(status_code=400, detail="Указанный путь к изображению не ведет к файлу.")
+            # Перенос изображения в постоянную папку "user_logo"
+            try:
+                # Перенос изображения и получение пути
+                user_logo_path = await move_image_to_user_logo(absolute_image_path, created_dirs)
+                logger.info(f"Изображение успешно перемещено в постоянную папку: {user_logo_path}")
+            except Exception as e:
+                logger.error(f"Ошибка при перемещении изображения: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Ошибка при перемещении изображения: {str(e)}")
+        else:
+            # Если new_user_image == False, используем существующее изображение
+            user_logo_path = image_path  # Берём ссылку на изображение из image_data
+            logger.info(f"Используется существующее изображение: {user_logo_path}")
 
-        # Перенос изображения в постоянную папку "user_logo"
-        try:
-            # Перенос изображения и получение пути
-            user_logo_path = await move_image_to_user_logo(absolute_image_path, created_dirs)
-            logger.info(f"Изображение успешно перемещено в постоянную папку: {user_logo_path}")
-        except Exception as e:
-            logger.error(f"Ошибка при перемещении изображения: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Ошибка при перемещении изображения: {str(e)}")
-    else:
-        # Если new_user_image == False, используем существующее изображение
-        user_logo_path = image_path  # Берём ссылку на изображение из image_data
-        logger.info(f"Используется существующее изображение: {user_logo_path}")
+        # Преобразование user_logo_path в строку, так как это объект HttpUrl (TODO объединить бы с сериализацией формы)
+        if isinstance(user_logo_path, HttpUrl):
+            user_logo_path = str(user_logo_path)
 
-    # Преобразование user_logo_path в строку, так как это объект HttpUrl (TODO объединить бы с сериализацией формы)
-    if isinstance(user_logo_path, HttpUrl):
-        user_logo_path = str(user_logo_path)
-
-    try:
         # Лог начала обработки запроса
         logger.info("Обработка данных профиля...")
 
@@ -534,12 +517,12 @@ async def save_profile(
 
         # Лог задачи перед отправкой в Redis
         logger.info(f"Публикуемые данные в Redis: {{"
-                     f"input_path: {absolute_video_path}, "
-                     f"output_path: {created_dirs['output_video']}, "
-                     f"preview_path: {created_dirs['output_preview']}, "
-                     f"user_logo_url: {user_logo_path}, "
-                     f"wallet_number: {hashed_wallet_number}, "
-                     f"form_data: {form_data_dict}}}")
+                    f"input_path: {absolute_video_path}, "
+                    f"output_path: {created_dirs['output_video']}, "
+                    f"preview_path: {created_dirs['output_preview']}, "
+                    f"user_logo_url: {user_logo_path}, "
+                    f"wallet_number: {wallet_number}, "
+                    f"form_data: {form_data_dict}}}")
 
         # Публикация задачи в Redis
         await publish_task(
@@ -548,7 +531,7 @@ async def save_profile(
             output_path=created_dirs["output_video"],  # Путь для итогового видео
             preview_path=created_dirs["output_preview"],  # Путь для превью
             user_logo_url=user_logo_path,  # Путь к изображению
-            wallet_number=hashed_wallet_number,  # Кошелек
+            wallet_number=wallet_number,  # Кошелек
             form_data=form_data_dict  # Данные формы для сохранения в БД
         )
         logger.info("Задача успешно отправлена в Redis.")
@@ -556,11 +539,13 @@ async def save_profile(
         # Ответ клиенту
         return {"message": "Ваш профиль успешно сохранен и отправлен на модерацию."}
 
+    except ValueError as e:
+        logger.error(f"Ошибка при обработке данных: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
     except redis.RedisError as e:
         # Лог ошибок при работе с Redis
         logger.error(f"Ошибка при подключении или публикации в Redis: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при сохранении профиля в Redis: {str(e)}")
-
     except Exception as e:
         logger.error(f"Ошибка при сохранении профиля: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при сохранении профиля: {str(e)}")
@@ -780,7 +765,7 @@ async def get_all_profiles_to_client(
 async def get_profiles(
     city: str,
     page: int = Query(1, ge=1),  # Стартовая страница по умолчанию 1, минимум 1
-    per_page: int = Query(25, le=100),  # По умолчанию 25 профилей, максимум 100
+    per_page: int = Query(50, le=100),  # По умолчанию 25 профилей, максимум 100
     sort_by: Optional[str] = Query(None, enum=["newest", "popularity"])
 ):
     result = await get_profiles_by_city(city, page, sort_by, per_page)
@@ -834,7 +819,7 @@ async def get_profile_by_username_endpoint(username: str):
 async def get_profiles_by_hashtag_endpoint(
     hashtag: str,
     page: int = Query(default=1, ge=1),
-    per_page: int = Query(default=10, ge=1, le=100),
+    per_page: int = Query(default=50, ge=50, le=100),
     sort_by: Optional[str] = Query(None, enum=["newest", "popularity"]),
     redis_client: redis.Redis = Depends(get_redis_client)
 ):
@@ -930,19 +915,27 @@ async def refresh_tokens_endpoint(refresh_token: str):
 
 # Ендпоинт для выдачи прав администратора
 @app.post("/grant-admin-rights")
-async def grant_admin_rights_endpoint(request_wallet: str, target_wallet: str, _: TokenData = Depends(check_user_token)):
+@app.post("/grant-admin-rights/")
+async def grant_admin_rights_endpoint(
+    target_wallet: str,
+    token_data: TokenData = Depends(check_user_token)
+):
     """
     Ендпоинт для выдачи прав администратора.
 
     Параметры:
-        request_wallet (str): Кошелек, с которого поступил запрос.
         target_wallet (str): Кошелек, которому нужно дать права администратора.
+        token_data (TokenData): Данные из токена (содержит user_id).
 
     Возвращает:
         dict: Сообщение о результате операции.
     """
     try:
-        success = await grant_admin_rights(request_wallet, target_wallet)
+        # Получаем user_id из токена
+        user_id = token_data.user_id
+
+        # Вызываем функцию для выдачи прав администратора
+        success = await grant_admin_rights(user_id, target_wallet)
         if success:
             return {"message": f"Права администратора успешно выданы для кошелька: {target_wallet}"}
         else:
@@ -956,13 +949,17 @@ async def grant_admin_rights_endpoint(request_wallet: str, target_wallet: str, _
 
 # Ендпоинт для отправки профилей на модерацию
 @app.get("/moderation")
-async def moderation_endpoint(admin_wallet: str, page: int = 1):
+async def moderation_endpoint(
+    page: int = 1,
+    per_page: int = Query(default=50, ge=50, le=100),  # Параметр per_page с ограничениями
+    token_data: TokenData = Depends(check_user_token)  # Зависимость для проверки токена
+):
     """
     Ендпоинт для получения профилей на модерацию.
 
     Параметры:
-        admin_wallet (str): Кошелек администратора, который запрашивает профили.
         page (int): Номер страницы (начинается с 1).
+        per_page (int): Количество профилей на страницу (50–100).
 
     Возвращает:
         dict: Словарь с данными о профилях, включая пагинацию и общее количество.
@@ -971,8 +968,11 @@ async def moderation_endpoint(admin_wallet: str, page: int = 1):
         HTTPException: Если запрос не от администратора или произошла ошибка.
     """
     try:
-        # Просто вызываем функцию, сессия открывается внутри нее
-        return await get_profiles_for_moderation(admin_wallet, page)
+        # Извлекаем user_id из токена
+        user_id = token_data.user_id
+
+        # Вызываем функцию для получения профилей
+        return await get_profiles_for_moderation(user_id, page, per_page)
     except HTTPException as e:
         raise e
     except Exception as e:
