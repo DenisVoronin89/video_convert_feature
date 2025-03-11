@@ -411,7 +411,10 @@ async def get_profiles_by_hashtag(
                 select(UserProfiles)
                 .join(UserProfiles.profile_hashtags)
                 .join(ProfileHashtag.hashtag)
-                .filter(Hashtag.tag == normalized_hashtag)  # Точное совпадение
+                .filter(
+                    Hashtag.tag == normalized_hashtag,  # Точное совпадение
+                    UserProfiles.is_incognito == False,  # Исключаем приватные профили
+                )
                 .options(
                     selectinload(UserProfiles.profile_hashtags)
                     .selectinload(ProfileHashtag.hashtag)
@@ -440,11 +443,35 @@ async def get_profiles_by_hashtag(
                 .select_from(UserProfiles)
                 .join(UserProfiles.profile_hashtags)
                 .join(ProfileHashtag.hashtag)
-                .filter(Hashtag.tag == normalized_hashtag)  # Тот же фильтр
+                .filter(
+                    Hashtag.tag == normalized_hashtag,  # Тот же фильтр
+                    UserProfiles.is_incognito == False,  # Исключаем приватные профили
+                )
             )
             total = (await db.execute(total_query)).scalar()
 
             logger.info(f"Общее количество профилей: {total}")
+
+            # Рассчитываем общее количество страниц
+            total_pages = (total + per_page - 1) // per_page
+
+            # Формируем сообщение о пагинации
+            if total == 0:
+                message = "Нет профилей для отображения."
+            else:
+                start_index = (page - 1) * per_page + 1
+                end_index = min(page * per_page, total)
+                if start_index > end_index:
+                    message = "Нет профилей для отображения на этой странице."
+                else:
+                    message = f"Показаны профили {start_index}-{end_index} из {total}."
+
+            # Проверяем, является ли текущая страница последней и неполной
+            is_last_page = page == total_pages
+            is_incomplete_page = len(profiles) < per_page
+
+            if is_last_page and is_incomplete_page:
+                message += " Это последняя страница. Начните просмотр профилей со страницы номер 1."
 
             # Формируем данные профилей для ответа
             profiles_data = [
@@ -470,10 +497,12 @@ async def get_profiles_by_hashtag(
 
             # Формируем ответ
             response_data = {
-                "page": page,
-                "per_page": per_page,
-                "total": total,
-                "profiles": profiles_data,
+                "theme": "Макс, это для тебя корешок ^^",  # Добавляем тему
+                "page_number": page,  # Номер текущей страницы
+                "total_profiles": total,  # Общее количество профилей
+                "total_pages": total_pages,  # Общее количество страниц
+                "message": message,  # Сообщение о пагинации
+                "profiles": profiles_data,  # Список профилей
             }
 
             # Сохраняем данные в кэш с TTL в 2 часа
@@ -485,7 +514,6 @@ async def get_profiles_by_hashtag(
     except Exception as e:
         logger.error(f"Ошибка получения профилей по хэштегу {hashtag}: {e}")
         raise HTTPException(status_code=500, detail="Ошибка сервера при получении профилей.")
-
 
 # Получение профилей по id
 async def get_profiles_by_ids(profile_ids: List[int]) -> List[dict]:

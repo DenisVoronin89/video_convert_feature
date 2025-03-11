@@ -390,9 +390,33 @@ async def get_profiles_by_city(city: str, page: int, sort_by: str, per_page: int
             profiles = result.unique().scalars().all()
 
             # Получаем общее количество профилей
-            total_query = select(func.count()).select_from(UserProfiles).filter(UserProfiles.city == city)
+            total_query = select(func.count()).select_from(UserProfiles).filter(
+                UserProfiles.city == city,
+                UserProfiles.is_incognito == False,  # Исключаем приватные профили
+            )
             total_result = await session.execute(total_query)
             total = total_result.scalar()
+
+            # Рассчитываем общее количество страниц
+            total_pages = (total + per_page - 1) // per_page
+
+            # Формируем сообщение о пагинации
+            if total == 0:
+                message = "Нет профилей для отображения."
+            else:
+                start_index = (page - 1) * per_page + 1
+                end_index = min(page * per_page, total)
+                if start_index > end_index:
+                    message = "Нет профилей для отображения на этой странице."
+                else:
+                    message = f"Показаны профили {start_index}-{end_index} из {total}."
+
+            # Проверяем, является ли текущая страница последней и неполной
+            is_last_page = page == total_pages
+            is_incomplete_page = len(profiles) < per_page
+
+            if is_last_page and is_incomplete_page:
+                message += " Это последняя страница. Начните просмотр профилей со страницы номер 1."
 
             # Обработка профилей
             profiles_data = []
@@ -426,10 +450,12 @@ async def get_profiles_by_city(city: str, page: int, sort_by: str, per_page: int
 
             logger.info(f"Получено {len(profiles_data)} профилей для страницы {page}")
             return {
-                "page": page,
-                "per_page": per_page,
-                "total": total,
-                "profiles": profiles_data,
+                "theme": "Макс, это для тебя корешок ^^",  # Добавляем тему
+                "page_number": page,  # Номер текущей страницы
+                "total_profiles": total,  # Общее количество профилей
+                "total_pages": total_pages,  # Общее количество страниц
+                "message": message,  # Сообщение о пагинации
+                "profiles": profiles_data,  # Список профилей
             }
 
     except SQLAlchemyError as e:
@@ -452,12 +478,9 @@ async def get_profile_by_wallet_number(wallet_number: str):
     """
     try:
         async with get_db_session_for_worker() as db:  # Открываем сессию внутри функции
-            # Хэширование номера кошелька для поиска
-            hashed_wallet_number = hashlib.sha256(wallet_number.encode()).hexdigest()
-            logger.info(f"Ищем пользователя с хэшированным номером кошелька: {hashed_wallet_number}")
 
-            # Поиск пользователя по хэшированному номеру кошелька
-            query = select(User).filter(User.wallet_number == hashed_wallet_number).options(
+            # Поиск пользователя по номеру кошелька
+            query = select(User).filter(User.wallet_number == wallet_number).options(
                 selectinload(User.profile).selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag)
             )
             result = await db.execute(query)
@@ -742,14 +765,37 @@ async def get_profiles_for_moderation(
             # Получаем общее количество профилей на модерацию
             total_query = select(func.count()).filter(UserProfiles.is_moderated == False)
             total_result = await session.execute(total_query)
-            total = total_result.scalar()
+            total_profiles = total_result.scalar()
+
+            # Рассчитываем общее количество страниц
+            total_pages = (total_profiles + per_page - 1) // per_page
+
+            # Формируем сообщение о пагинации
+            if total_profiles == 0:
+                message = "Нет профилей для модерации."
+            else:
+                start_index = (page - 1) * per_page + 1
+                end_index = min(page * per_page, total_profiles)
+                if start_index > end_index:
+                    message = "Нет профилей для отображения на этой странице."
+                else:
+                    message = f"Показаны профили {start_index}-{end_index} из {total_profiles}."
+
+            # Проверяем, является ли текущая страница последней и неполной
+            is_last_page = page == total_pages
+            is_incomplete_page = len(profiles) < per_page
+
+            if is_last_page and is_incomplete_page:
+                message += " Это последняя страница. Начните просмотр профилей со страницы номер 1."
 
             logger.info(f"Получено {len(profiles)} профилей для модерации, страница {page}")
             return {
-                "page": page,
-                "per_page": per_page,
-                "total": total,
-                "profiles": profiles_data,
+                "theme": "Макс, это для тебя корешок ^^",  # Добавляем тему
+                "page_number": page,  # Номер текущей страницы
+                "total_profiles": total_profiles,  # Общее количество профилей
+                "total_pages": total_pages,  # Общее количество страниц
+                "message": message,  # Сообщение о пагинации
+                "profiles": profiles_data,  # Список профилей
             }
 
     except HTTPException as e:
