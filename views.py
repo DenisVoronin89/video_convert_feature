@@ -170,13 +170,6 @@ async def move_image_to_user_logo(image_path: str, created_dirs: dict) -> str:
         raise HTTPException(status_code=500, detail="Не удалось переместить изображение в директорию user_logo")
 
 
-
-
-
-
-
-
-
 # Получение всех профилей по тому же алгоритму или сортировке по новизне/популярности
 async def get_all_profiles(
     page: int,

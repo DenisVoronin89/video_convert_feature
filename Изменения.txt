@@ -129,20 +129,20 @@ MIME-тип или расширение, но на самом деле явля�
     "is_in_mlm": 1,
     "is_incognito": false,
     "name": "Кусок обоссонного гавна",
-    "wallet_number": "0x27b0B8cfa07fA60f36Ad953F679D36EBC7d4355",
+    "wallet_number": "0x27b0B8cfa07fA72f36Ad953F679D36EBC7d4355",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/832ac91b-bdfa-471a-b1b2-0ed17e2d8ffa_молекула_preview_rev_1.png"
+    "image_path": "./image_temp/96375f13-7391-4dad-949d-420a0069ceb1_молекула_preview_rev_1.png"
   },
   "video_data": {
-    "video_path": "./video_temp/3182f8aa-b4f5-4c03-95da-a547212af042_100235-video-720.mp4"
+    "video_path": "./video_temp/77ecc4f8-eb62-4086-9362-d0562e6d43c1_100236-video-720.mp4"
   }
 }
 
 
 
-кошелек для тестов: 0x27b9B8cfa04fA08f66Ad694F679D86EBC7d7355
+кошелек для тестов: 0x27b0B8cfa07fA60f36Ad953F679D36EBC7d4355
 
 
 
@@ -169,7 +169,7 @@ MIME-тип или расширение, но на самом деле явля�
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/87c9179c-4dbb-49e4-a8b0-1d52fe134c1a_молекула_preview_rev_1.png"
+    "image_path": "./image_temp/96375f13-7391-4dad-949d-420a0069ceb1_молекула_preview_rev_1.png"
   }
 }
 

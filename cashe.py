@@ -681,6 +681,9 @@ async def save_profile_to_db_without_video(
                 # Преобразование user_logo_path в строку, так как это объект HttpUrl
                 if isinstance(user_logo_path, HttpUrl):
                     user_logo_path = str(user_logo_path)
+
+                user_logo_path = user_logo_path.lstrip('.')
+
             except Exception as e:
                 logger.error(f"Ошибка при извлечении путей из JSON: {str(e)}")
                 raise HTTPException(status_code=400, detail="Ошибка при извлечении путей из JSON.")

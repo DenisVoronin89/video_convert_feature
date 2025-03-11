@@ -508,6 +508,9 @@ async def save_profile(
         if isinstance(user_logo_path, HttpUrl):
             user_logo_path = str(user_logo_path)
 
+        # Убираем точку в начале, если она есть !!!! МАКСУ ТАК НАДО!!!!!
+        user_logo_path = user_logo_path.lstrip('.')
+
         # Лог начала обработки запроса
         logger.info("Обработка данных профиля...")
 
