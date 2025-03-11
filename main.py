@@ -217,7 +217,7 @@ async def check_user_token(credentials: HTTPAuthorizationCredentials = Depends(o
 
 
 # Эндпоинт для регистрации/авторизации пользователя, отдача избранного и информации о профиле на фронт, генерация токенов
-@app.post("/user/login")
+@app.post("/api/user/login")
 async def login(
     wallet_number: str,
     session: AsyncSession = Depends(get_db_session),
@@ -332,7 +332,7 @@ async def login(
 
 
 # Эндпоинт для загрузки изображения
-@app.post("/upload_image/")
+@app.post("/api/upload_image/")
 async def upload_image(file: UploadFile = File(...), current_user: TokenData = Depends(check_user_token)):
     try:
         logger.info(f"Получен запрос на загрузку изображения от пользователя с ID: {current_user.user_id}")
@@ -360,7 +360,7 @@ async def upload_image(file: UploadFile = File(...), current_user: TokenData = D
 
 
 # Эндпоинт для загрузки видео
-@app.post("/upload_video/")
+@app.post("/api/upload_video/")
 async def upload_video(file: UploadFile = File(...), current_user: TokenData = Depends(check_user_token)):
     try:
         logger.info("Получен запрос на загрузку видео от пользователя с ID: {current_user.user_id}")
@@ -388,7 +388,7 @@ async def upload_video(file: UploadFile = File(...), current_user: TokenData = D
 
 
 # Эндпоинт валидации формы
-@app.post("/check_form/")
+@app.post("/api/check_form/")
 async def check_form(data: FormData, current_user: TokenData = Depends(check_user_token)):
     logger.debug(f"Получены данные: {data}")
     try:
@@ -422,7 +422,7 @@ async def check_form(data: FormData, current_user: TokenData = Depends(check_use
 
 
 # Эндпоинт сохранения профиля
-@app.post("/save_profile/")
+@app.post("/api/save_profile/")
 async def save_profile(
     profile_data: FormData,
     image_data: dict,
@@ -552,7 +552,7 @@ async def save_profile(
 
 
 # Эндпоинт для сохранения юзера в БД без видео (нет смысла запускать фоновую задачу)
-@app.post("/save_profile_without_video/")
+@app.post("/api/save_profile_without_video/")
 async def create_or_update_user_profile(
     form_data: FormData,
     image_data: dict,
@@ -583,7 +583,7 @@ async def create_or_update_user_profile(
 # ЭНДПОИНТЫ ДЛЯ РАБОТЫ С ИЗБРАННЫМ И СЧЕТЧИКАМИ ПОДПИСЧИКОВ
 
 # Эндпоинт для добавления в избранное и увеличения счётчика подписчиков
-@app.post("/favorites/add/")
+@app.post("/api/favorites/add/")
 async def add_to_favorites_and_increment(
     user_id: int,
     profile_id: int,
@@ -637,7 +637,7 @@ async def add_to_favorites_and_increment(
 
 
 # Эндпоинт для удаления из избранного и уменьшения счётчика подписчиков
-@app.post("/favorites/remove/")
+@app.post("/api/favorites/remove/")
 async def remove_from_favorites_and_decrement(
     user_id: int,
     profile_id: int,
@@ -691,7 +691,7 @@ async def remove_from_favorites_and_decrement(
 
 
 # Эндпоинт для получения текущего счётчика подписчиков
-@app.get("/subscribers/count/")
+@app.get("/api/subscribers/count/")
 async def get_subscribers_count(
     profile_id: int,
     redis_client: redis.Redis = Depends(get_redis_client),
@@ -709,7 +709,7 @@ async def get_subscribers_count(
 
 
 # Эндпоинт для получения списка избранного пользователя
-@app.get("/favorites/")
+@app.get("/api/favorites/")
 async def get_favorites(user_id: int, redis_client: redis.Redis = Depends(get_redis_client), _: TokenData = Depends(check_user_token)):
     """
     Получить список избранных профилей пользователя.
@@ -729,7 +729,7 @@ async def get_favorites(user_id: int, redis_client: redis.Redis = Depends(get_re
 # ЭНДПОИНТЫ ДЛЯ ОТДАЧИ ПРОФИЛЕЙ
 
 # Эндпоинт для получения всех профилей (Сначала ныряем в Редис, если там пусто - берем данные из БД)
-@app.get("/profiles/all/")
+@app.get("/api/profiles/all/")
 async def get_all_profiles_to_client(
     page: int = Query(1, description="Номер страницы (начинается с 1).", ge=1),  # Страница (по умолчанию 1)
     sort_by: Optional[str] = Query(None, description="Параметр сортировки. Возможные значения: newest, popularity.", enum=["newest", "popularity"]),
@@ -761,7 +761,7 @@ async def get_all_profiles_to_client(
 
 
 # Эндпоинт для получения профилей по городу
-@app.get("/profiles/city/")
+@app.get("/api/profiles/city/")
 async def get_profiles(
     city: str,
     page: int = Query(1, ge=1),  # Стартовая страница по умолчанию 1, минимум 1
@@ -773,7 +773,7 @@ async def get_profiles(
 
 
 # Эндпоинт получения пользователя по номеру кошелька
-@app.get("/profile/by_wallet_number/")
+@app.get("/api/profile/by_wallet_number/")
 async def get_profile_by_wallet_number_endpoint(wallet_number: str):
     """
     Получить профиль пользователя по номеру кошелька.
@@ -794,7 +794,7 @@ async def get_profile_by_wallet_number_endpoint(wallet_number: str):
 
 
 # Эндпоинт получения пользователя по имени
-@app.get("/profile/by_username/")
+@app.get("/api/profile/by_username/")
 async def get_profile_by_username_endpoint(username: str):
     """
     Получить профиль пользователя по имени.
@@ -815,7 +815,7 @@ async def get_profile_by_username_endpoint(username: str):
 
 
 # Эндпоинт для получения профилей по хэштегу с кэшированием и сортировкой
-@app.get("/profiles/by-hashtag/")
+@app.get("/api/profiles/by-hashtag/")
 async def get_profiles_by_hashtag_endpoint(
     hashtag: str,
     page: int = Query(default=1, ge=1),
@@ -848,7 +848,7 @@ async def get_profiles_by_hashtag_endpoint(
 
 
 # Эндпоинт для получения профилей по ID
-@app.get("/profiles/", response_model=List[dict])
+@app.get("/api/profiles/", response_model=List[dict])
 async def get_profiles(profile_ids: List[int] = Query(..., description="Список ID профилей")):
     """
     Получает данные профилей по их ID. Сначала проверяет кеш (Redis), затем базу данных (БД).
@@ -866,7 +866,7 @@ async def get_profiles(profile_ids: List[int] = Query(..., description="Спис
 
 
 # Эндпоинт получения профилей пользователей в радиусе 10 км от клиента
-@app.get("/profiles/nearby")
+@app.get("/api/profiles/nearby")
 async def get_profiles_nearby(
     longitude: float = Query(..., description="Долгота пользователя, например: -175", ge=-180, le=180),
     latitude: float = Query(..., description="Широта пользователя, например: 85", ge=-90, le=90),
@@ -896,7 +896,7 @@ async def get_profiles_nearby(
 
 # ЭНДПОИНТЫ ДЛЯ РАБОТЫ С JWT
 # Генерация новых токенов после протухания
-@app.post("/refresh-tokens", response_model=TokenResponse)
+@app.post("/api/refresh-tokens", response_model=TokenResponse)
 async def refresh_tokens_endpoint(refresh_token: str):
     try:
         # Валидируем refresh токен
@@ -914,8 +914,7 @@ async def refresh_tokens_endpoint(refresh_token: str):
 
 
 # Ендпоинт для выдачи прав администратора
-@app.post("/grant-admin-rights")
-@app.post("/grant-admin-rights/")
+@app.post("/api/grant-admin-rights/")
 async def grant_admin_rights_endpoint(
     target_wallet: str,
     token_data: TokenData = Depends(check_user_token)
@@ -948,7 +947,7 @@ async def grant_admin_rights_endpoint(
 
 
 # Ендпоинт для отправки профилей на модерацию
-@app.get("/moderation")
+@app.get("/api/moderation")
 async def moderation_endpoint(
     page: int = 1,
     per_page: int = Query(default=50, ge=50, le=100),  # Параметр per_page с ограничениями
@@ -981,7 +980,7 @@ async def moderation_endpoint(
 
 
 # Ендпоинт для модерации профиля
-@app.post("/moderate-profile")
+@app.post("/api/moderate-profile")
 async def moderate_profile_endpoint(
     admin_wallet: str,  # Нехэшированный кошелек администратора
     profile_id: int,  # ID профиля для модерации
@@ -1002,7 +1001,6 @@ async def moderate_profile_endpoint(
         HTTPException: Если запрос не от администратора или произошла ошибка.
     """
     try:
-        # Просто вызываем функцию, сессия открывается внутри нее
         return await moderate_profile(admin_wallet, profile_id, moderation)
     except HTTPException as e:
         raise e
@@ -1012,7 +1010,7 @@ async def moderate_profile_endpoint(
 
 
 # ЭНДПОИНТ ДЛЯ НАПОЛНЕНИЯ БД, ПОТОМ УДАЛИТЬ ЕГО И МОДУЛЬ ФЕЙК ПРОФИЛЕЙ!!!!!!!!!!!!!
-@app.post("/fill-database")
+@app.post("/api/fill-database")
 async def fill_database(session: AsyncSession = Depends(get_db_session)):
     try:
         await generate_profiles()
