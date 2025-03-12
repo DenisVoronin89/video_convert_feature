@@ -128,15 +128,15 @@ MIME-тип или расширение, но на самом деле явля�
     ],
     "is_in_mlm": 1,
     "is_incognito": false,
-    "name": "Кусок обоссонного гавна",
-    "wallet_number": "0x27b0B8cfa07fA72f36Ad953F679D36EBC7d4355",
+    "name": "Кусок ссанины",
+    "wallet_number": "0x29b0B8cfa07fA65f36Ad713F679D36EBC7d4355",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/96375f13-7391-4dad-949d-420a0069ceb1_молекула_preview_rev_1.png"
+    "image_path": "./image_temp/369dcee9-df35-4646-93ab-093a5f491915_молекула_preview_rev_1.png"
   },
   "video_data": {
-    "video_path": "./video_temp/77ecc4f8-eb62-4086-9362-d0562e6d43c1_100236-video-720.mp4"
+    "video_path": "./video_temp/d34aa441-e5c4-467b-8cb0-c88acd5e6934_100685-video-720.mp4"
   }
 }
 
@@ -174,7 +174,7 @@ MIME-тип или расширение, но на самом деле явля�
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/96375f13-7391-4dad-949d-420a0069ceb1_молекула_preview_rev_1.png"
+    "image_path": "./image_temp/f8ac0ec9-9c29-4db3-b742-50093f6c0f53_orig_cat.webp"
   }
 }
 

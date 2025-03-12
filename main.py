@@ -126,13 +126,13 @@ async def start_scheduler():
     logger.info("Задача sync_data_to_db добавлена в расписание (каждые 8 минут).")
 
     # Очистка логов каждые 5 минут
-    scheduler.add_job(
-        clean_old_logs,
-        "interval",
-        minutes=5,
-        args=["video_service.log", 10],  # Очищаем логи старше 10 минут
-    )
-    logger.info("Задача очистки логов добавлена в расписание (каждые 5 минут).")
+    # scheduler.add_job(
+    #     clean_old_logs,
+    #     "interval",
+    #     minutes=5,
+    #     args=["video_service.log", 10],  # Очищаем логи старше 10 минут
+    # )
+    # logger.info("Задача очистки логов добавлена в расписание (каждые 5 минут).")
 
     # Запуск очистки файлов каждый день в 00:00
     scheduler.add_job(

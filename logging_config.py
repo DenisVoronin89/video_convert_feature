@@ -2,9 +2,17 @@
 
 import logging
 import inspect
+import os
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения
+load_dotenv()
+
+# Получаем значение DEBUG_MODE из .env
+DEBUG_MODE = os.getenv("DEBUG_MODE", "False").lower() == "true"
 
 # Настройка основного логгера
-log_level = logging.DEBUG
+log_level = logging.DEBUG if DEBUG_MODE else logging.ERROR  # Логи только в режиме разработки
 log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')  # Формат для основных логов
 log_file = 'video_service.log'
 
@@ -16,7 +24,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(log_level)
 logger.addHandler(file_handler)
 
-# Логгер для ошибок
+# Логгер для ошибок (всегда активен, независимо от DEBUG_MODE)
 error_logger = logging.getLogger("error_logger")
 error_logger.setLevel(logging.ERROR)
 
