@@ -605,7 +605,7 @@ async def add_to_favorites_and_increment(
         logger.info(f"Начало обработки запроса для user_id={user_id}, profile_id={profile_id}")
 
         # 1. Проверяем, есть ли профиль уже в избранном
-        is_favorite = await redis_client.sismember(f"user:{user_id}:favorites", profile_id)
+        is_favorite = await redis_client.sismember(f"favorites:{user_id}", profile_id)
         if is_favorite:
             logger.info(f"Профиль {profile_id} уже в избранном у пользователя {user_id}")
             return {
@@ -616,7 +616,7 @@ async def add_to_favorites_and_increment(
             }
 
         # 2. Добавляем профиль в избранное
-        await redis_client.sadd(f"user:{user_id}:favorites", profile_id)
+        await redis_client.sadd(f"favorites:{user_id}", profile_id)
         logger.info(f"Профиль {profile_id} добавлен в избранное пользователя {user_id}")
 
         # 3. Увеличиваем счётчик подписчиков
@@ -659,7 +659,7 @@ async def remove_from_favorites_and_decrement(
         logger.info(f"Начало обработки запроса для user_id={user_id}, profile_id={profile_id}")
 
         # 1. Проверяем, есть ли профиль в избранном
-        is_favorite = await redis_client.sismember(f"user:{user_id}:favorites", profile_id)
+        is_favorite = await redis_client.sismember(f"favorites:{user_id}", profile_id)
         if not is_favorite:
             logger.info(f"Профиль {profile_id} не был в избранном у пользователя {user_id}")
             return {
@@ -670,7 +670,7 @@ async def remove_from_favorites_and_decrement(
             }
 
         # 2. Удаляем профиль из избранного
-        await redis_client.srem(f"user:{user_id}:favorites", profile_id)
+        await redis_client.srem(f"favorites:{user_id}", profile_id)
         logger.info(f"Профиль {profile_id} удалён из избранного пользователя {user_id}")
 
         # 3. Уменьшаем счётчик подписчиков
