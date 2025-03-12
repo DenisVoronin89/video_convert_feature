@@ -988,6 +988,7 @@ async def moderate_profile_endpoint(
     admin_wallet: str,  # Нехэшированный кошелек администратора
     profile_id: int,  # ID профиля для модерации
     moderation: bool,  # True — профиль прошел модерацию, False — не прошел
+    token_data: TokenData = Depends(check_user_token)
 ):
     """
     Ендпоинт для модерации профилей.
@@ -1004,7 +1005,9 @@ async def moderate_profile_endpoint(
         HTTPException: Если запрос не от администратора или произошла ошибка.
     """
     try:
-        return await moderate_profile(admin_wallet, profile_id, moderation)
+        # Получаем user_id из токена
+        user_id = token_data.user_id
+        return await moderate_profile(user_id, profile_id, moderation)
     except HTTPException as e:
         raise e
     except Exception as e:

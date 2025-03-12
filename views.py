@@ -875,7 +875,7 @@ async def grant_admin_rights(user_id: int, target_wallet: str) -> bool:
 
 # Описание логики модерации
 async def moderate_profile(
-    admin_wallet: str,  # Нехэшированный кошелек администратора
+    user_id: int,  # ID администратора из токена
     profile_id: int,  # ID профиля для модерации
     moderation: bool,  # True — профиль прошел модерацию, False — не прошел
 ) -> dict:
@@ -883,7 +883,7 @@ async def moderate_profile(
     Модерирует профиль пользователя.
 
     Параметры:
-        admin_wallet (str): Нехэшированный кошелек администратора.
+        user_id (int): ID администратора.
         profile_id (int): ID профиля для модерации.
         moderation (bool): Результат модерации (True — одобрено, False — отклонено).
 
@@ -893,22 +893,18 @@ async def moderate_profile(
     Исключения:
         HTTPException: Если запрос не от администратора или произошла ошибка.
     """
-    try:
-        # Хэшируем кошелек администратора
-        hashed_admin_wallet = hashlib.sha256(admin_wallet.encode()).hexdigest()
-
-        # Открываем сессию через get_db_session_for_worker
-        async with get_db_session_for_worker() as session:
+    async with get_db_session_for_worker() as session:
+        try:
             # Проверяем, что запрос пришел от администратора
-            admin_query = select(UserProfiles).join(User).filter(
-                User.wallet_number == hashed_admin_wallet,
+            admin_query = select(UserProfiles).filter(
+                UserProfiles.user_id == user_id,
                 UserProfiles.is_admin == True
             )
             admin_result = await session.execute(admin_query)
             admin_profile = admin_result.scalar()
 
             if not admin_profile:
-                logger.warning(f"Неавторизованный от кошелька запрос : {admin_wallet}")
+                logger.warning(f"Пользователь с ID {user_id} не является администратором.")
                 raise HTTPException(status_code=403, detail="Только администраторы могут модерировать профили, да.")
 
             # Находим профиль для модерации по ID
@@ -946,9 +942,10 @@ async def moderate_profile(
             logger.info(f"Профиль с ID {profile_id} был обновлен: {message}")
             return {"message": message}
 
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        logger.error(f"Ошибка при модерации профиля: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка сервера при модерации профиля, да.")
-
+        except HTTPException as e:
+            await session.rollback()
+            raise e
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Ошибка при модерации профиля: {e}")
+            raise HTTPException(status_code=500, detail="Ошибка сервера при модерации профиля, да.")
