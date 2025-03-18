@@ -15,6 +15,7 @@ from video_handle.video_handler_worker import (
     upload_to_s3,
     save_profile_to_db,
     check_s3_connection,
+    extract_frame,
     PREVIEW_DURATION
 )
 from logging_config import get_logger
@@ -60,7 +61,18 @@ async def handle_task(task_data):
 
         logger.info(f"Извлечение превью для {task_data['input_path']} завершено успешно")
 
-        # 3. Загрузка в хранилище (пока по дефолту юзаем AWS S3, потом в проде переписать в зависимости от хранилища)
+        # 3. Извлечение постера из превью
+        logger.info(f"Начинаю извлечение постера для {task_data['input_path']}")
+        poster_path = await extract_frame(
+            video_path=preview_video,  # Используем превью как источник для постера
+            posters_folder="user_video_posters",  # Папка для сохранения постера
+            frame_time=2,  # Время для извлечения кадра (2 секунды)
+            logger=logger,
+        )
+
+        logger.info(f"Извлечение постера для {task_data['input_path']} завершено успешно. Путь: {poster_path}")
+
+        # 4. Загрузка в хранилище (пока по дефолту юзаем AWS S3, потом в проде переписать в зависимости от хранилища)
         logger.info(f"Начинаю загрузку видео {task_data['output_path']} и превью {task_data['preview_path']} в S3")
         video_url, preview_url = await upload_to_s3(
             converted_video,
@@ -71,7 +83,7 @@ async def handle_task(task_data):
         logger.info(f"Загрузка видео {task_data['output_path']} в S3 завершена успешно. URL: {video_url}")
         logger.info(f"Загрузка превью {task_data['preview_path']} в S3 завершена успешно. URL: {preview_url}")
 
-        # 4. Сохранение профиля в БД
+        # 5. Сохранение профиля в БД
         logger.info(f"Начинаю сохранение профиля в БД для пользователя {task_data['form_data'].get('name', 'Неизвестно')}")
         try:
             async with get_db_session_for_worker() as session:
@@ -81,6 +93,7 @@ async def handle_task(task_data):
                     form_data=task_data["form_data"],
                     video_url=video_url,
                     preview_url=preview_url,
+                    poster_path=poster_path,
                     user_logo_url=task_data["user_logo_url"],
                     wallet_number=task_data["wallet_number"],
                     logger=logger

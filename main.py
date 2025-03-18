@@ -75,7 +75,8 @@ directories_to_create = {
     "image_temp": "./image_temp",
     "output_video": "./output_video",
     "output_preview": "./output_preview",
-    "user_logo": "./user_logo"
+    "user_logo": "./user_logo",
+    "user_video_posters": "./user_video_posters"
 }
 
 app = FastAPI()
@@ -121,7 +122,7 @@ async def start_scheduler():
     # Задача, которая выполняется каждые 8 минут (синхронизация данных из Redis в БД)
     scheduler.add_job(
         sync_data_to_db,  # Функция
-        IntervalTrigger(minutes=8),  # Триггер (интервал 8 минут)
+        IntervalTrigger(minutes=3),  # Триггер (интервал 8 минут)
     )
     logger.info("Задача sync_data_to_db добавлена в расписание (каждые 8 минут).")
 

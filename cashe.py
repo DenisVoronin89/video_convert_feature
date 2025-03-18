@@ -481,6 +481,7 @@ async def get_profiles_by_hashtag(
                     "user_logo_url": profile.user_logo_url,
                     "video_url": profile.video_url,
                     "preview_url": profile.preview_url,
+                    "poster_url": profile.poster_url,
                     "activity_and_hobbies": profile.activity_and_hobbies,
                     "is_moderated": profile.is_moderated,
                     "is_incognito": profile.is_incognito,
@@ -514,6 +515,7 @@ async def get_profiles_by_hashtag(
     except Exception as e:
         logger.error(f"Ошибка получения профилей по хэштегу {hashtag}: {e}")
         raise HTTPException(status_code=500, detail="Ошибка сервера при получении профилей.")
+
 
 # Получение профилей по id
 async def get_profiles_by_ids(profile_ids: List[int]) -> List[dict]:
@@ -724,11 +726,12 @@ async def save_profile_to_db_without_video(
                     if new_user_image:  # Обновляем аватарку только если new_user_image == True
                         profile.user_logo_url = user_logo_path
 
-                    # Обработка видео и превью
+                    # Обработка видео, превью и постера
                     if delete_video:  # Если нужно удалить видео
                         profile.video_url = None  # Видео отсутствует
                         profile.preview_url = None  # Превью отсутствует
-                    # Если delete_video == False, поля video_url и preview_url остаются без изменений
+                        profile.poster_url = None  # Постер отсутствует
+                    # Если delete_video == False, поля video_url, preview_url и poster_url остаются без изменений
 
                     profile.is_admin = current_is_admin
 
@@ -752,7 +755,8 @@ async def save_profile_to_db_without_video(
                         user_logo_url=user_logo_path if new_user_image else None,
                         # Добавляем путь к логотипу только если new_user_image == True
                         video_url=None,  # Видео отсутствует
-                        preview_url=None  # Превью отсутствует
+                        preview_url=None,  # Превью отсутствует
+                        poster_url=None  # Постер отсутствует
                     )
 
                     user.is_profile_created = True
@@ -877,11 +881,9 @@ async def create_pages_from_cached_profiles(redis_client: redis.Redis) -> Tuple[
             if profile_data:
                 profile = json.loads(profile_data)
                 # Фильтруем только публичные профили
-                if not profile.get("is_incognito", False):
-                    all_profiles.append(profile)
-
-        total_profiles = len(all_profiles)
-        logger.info(f"Всего публичных профилей в кеше: {total_profiles}")
+                # if not profile.get("is_incognito", False):
+                #     all_profiles.append(profile)
+                all_profiles.append(profile)  # Добавляем все профили
 
         # Разделяем профили на категории
         popular_profiles = sorted(all_profiles, key=lambda x: x.get("followers_count", 0), reverse=True)[:10]
@@ -907,6 +909,7 @@ async def create_pages_from_cached_profiles(redis_client: redis.Redis) -> Tuple[
         page_size = 50
         pages = [all_profiles[i:i + page_size] for i in range(0, len(all_profiles), page_size)]
         total_pages = ceil(len(all_profiles) / page_size)  # Округляем вверх
+        total_profiles = len(all_profiles)  # Общее количество профилей
         logger.info(f"Сформировано страниц: {total_pages}")
 
         # Если страниц нет, завершаем выполнение
@@ -1066,6 +1069,7 @@ async def fetch_and_cache_profiles(redis_client: redis.Redis) -> tuple[int, int]
                         "user_logo_url": profile.user_logo_url,
                         "video_url": profile.video_url,
                         "preview_url": profile.preview_url,
+                        "poster_url": profile.poster_url,
                         "activity_and_hobbies": profile.activity_and_hobbies,
                         "is_moderated": profile.is_moderated,
                         "is_incognito": profile.is_incognito,

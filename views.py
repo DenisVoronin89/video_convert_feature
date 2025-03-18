@@ -201,7 +201,6 @@ async def get_all_profiles(
                     joinedload(UserProfiles.user),
                     subqueryload(UserProfiles.profile_hashtags).subqueryload(ProfileHashtag.hashtag)
                 )
-                .filter(UserProfiles.is_incognito == False)
             )
 
             # Применение сортировки
@@ -316,6 +315,7 @@ async def get_all_profiles(
                     "user_logo_url": profile.user_logo_url,
                     "video_url": profile.video_url,
                     "preview_url": profile.preview_url,
+                    "poster_url": profile.poster_url,
                     "activity_and_hobbies": profile.activity_and_hobbies,
                     "is_moderated": profile.is_moderated,
                     "is_incognito": profile.is_incognito,
@@ -425,6 +425,7 @@ async def get_profiles_by_city(city: str, page: int, sort_by: str, per_page: int
                     "user_logo_url": profile.user_logo_url,
                     "video_url": profile.video_url,
                     "preview_url": profile.preview_url,
+                    "poster_url": profile.poster_url,
                     "activity_and_hobbies": profile.activity_and_hobbies,
                     "is_moderated": profile.is_moderated,
                     "is_incognito": profile.is_incognito,
@@ -495,6 +496,7 @@ async def get_profile_by_wallet_number(wallet_number: str):
                 "user_logo_url": profile.user_logo_url,
                 "video_url": profile.video_url,
                 "preview_url": profile.preview_url,
+                "poster_url": profile.poster_url,
                 "activity_and_hobbies": profile.activity_and_hobbies,
                 "is_moderated": profile.is_moderated,
                 "is_incognito": profile.is_incognito,
@@ -549,6 +551,7 @@ async def get_profile_by_username(username: str) -> List[dict]:
                     "user_logo_url": profile.user_logo_url,
                     "video_url": profile.video_url,
                     "preview_url": profile.preview_url,
+                    "poster_url": profile.poster_url,
                     "activity_and_hobbies": profile.activity_and_hobbies,
                     "is_moderated": profile.is_moderated,
                     "is_incognito": profile.is_incognito,
@@ -739,6 +742,7 @@ async def get_profiles_for_moderation(
                     "user_logo_url": profile.user_logo_url,
                     "video_url": profile.video_url,
                     "preview_url": profile.preview_url,
+                    "poster_url": profile.poster_url,
                     "activity_and_hobbies": profile.activity_and_hobbies,
                     "is_moderated": profile.is_moderated,
                     "is_incognito": profile.is_incognito,

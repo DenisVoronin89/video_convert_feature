@@ -32,6 +32,7 @@ class UserProfiles(Base):
     name = Column(String(100), nullable=False)
     website_or_social = Column(String(255), nullable=True)
     user_logo_url = Column(String(255), nullable=False, unique=True)
+    poster_url = Column(String(255), nullable=True)
     video_url = Column(String(255), nullable=True)
     preview_url = Column(String(255), nullable=True)
     activity_and_hobbies = Column(String(500), nullable=True)

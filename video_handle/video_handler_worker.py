@@ -117,6 +117,50 @@ async def extract_preview(input_path, preview_path, duration=PREVIEW_DURATION, l
     return preview_path
 
 
+# Извлечение картинки из видео (для отображения постера на фронте)
+async def extract_frame(video_path, posters_folder="user_video_posters", frame_time=2, logger=None):
+    """
+    Извлекает кадр из видео на указанной секунде, сохраняет его как изображение
+    в папку `posters_folder` и возвращает путь к изображению.
+
+    :param video_path: Путь к исходному видео.
+    :param posters_folder: Папка для сохранения изображения (по умолчанию "user_video_posters").
+    :param frame_time: Время в секундах, на котором нужно извлечь кадр (по умолчанию 2 секунды).
+    :param logger: Логгер для записи сообщений.
+    :return: Путь к сохранённому изображению в папке `posters_folder`.
+    """
+    start_time = time.time()
+
+    # Извлечение имени файла из пути
+    video_filename = os.path.basename(video_path)
+    poster_filename = f"{os.path.splitext(video_filename)[0]}_poster.jpg"  # Имя файла для постера
+    poster_path = os.path.join(posters_folder, poster_filename)  # Полный путь для сохранения
+
+    try:
+        if logger:
+            logger.info(f"Извлечение кадра из видео: {video_path} -> {poster_path} (Время: {frame_time} сек.)")
+        (
+            ffmpeg
+            .input(video_path, ss=frame_time)  # Указываем время, на котором нужно извлечь кадр
+            .output(poster_path, vframes=1)  # Сохраняем только один кадр
+            .overwrite_output()
+            .run(capture_stdout=True, capture_stderr=True)
+        )
+        elapsed_time = time.time() - start_time
+        if logger:
+            logger.info(f"Извлечение кадра завершено: {poster_path} (Время: {elapsed_time:.2f} сек.)")
+    except ffmpeg.Error as e:
+        if logger:
+            logger.error(f"Ошибка FFmpeg при извлечении кадра: {e.stderr.decode()}")
+        raise RuntimeError("Не удалось извлечь кадр из видео")
+
+    if logger:
+        logger.info(f"Кадр успешно извлечён и сохранён: {poster_path}")
+
+    # Возврат пути к изображению в папке `posters_folder`
+    return poster_path
+
+
 # Проверка соединения с AWS S3 перед загрузкой
 async def check_s3_connection(logger):
     """ Проверка соединения с AWS S3 перед загрузкой. """
@@ -200,7 +244,7 @@ async def upload_to_s3(converted_video, preview_video, logger):
         raise RuntimeError(f"Не удалось загрузить файлы в S3: {e}")
 
 
-async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_url: str, preview_url: str, user_logo_url: str, wallet_number: str, logger):
+async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_url: str, preview_url: str, poster_path: str, user_logo_url: str, wallet_number: str, logger):
     """
     Сохранение или обновление данных пользователя, логотипа и хэштегов в БД.
 
@@ -244,6 +288,7 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                     video_url=video_url,
                     preview_url=preview_url,
                     user_logo_url=user_logo_url,
+                    poster_url=poster_path,
                     adress=form_data["adress"],
                     city=form_data["city"],
                     coordinates=multi_point_wkt,
@@ -278,6 +323,7 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                 profile.video_url = video_url
                 profile.preview_url = preview_url
                 profile.user_logo_url = user_logo_url
+                profile.poster_url = poster_path
                 profile.adress = form_data["adress"] if form_data["adress"] is not None else None
                 profile.city = form_data["city"] if form_data["city"] is not None else None
                 profile.coordinates = multi_point_wkt if coordinates is not None else None
