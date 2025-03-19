@@ -255,6 +255,7 @@ async def login(
                     "user_logo_url": profile.user_logo_url,
                     "video_url": profile.video_url,
                     "preview_url": profile.preview_url,
+                    "poster_url": profile.poster_url,
                     "activity_and_hobbies": profile.activity_and_hobbies,
                     "is_moderated": profile.is_moderated,
                     "is_incognito": profile.is_incognito,
