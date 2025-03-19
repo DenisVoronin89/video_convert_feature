@@ -11,6 +11,11 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Устанавливаем микро (micro) для чтения логов в реальном времени
+RUN curl -L https://github.com/zyedidia/micro/releases/download/v2.0.11/micro-2.0.11-linux64.tar.gz | tar xz \
+    && mv micro-2.0.11/micro /usr/local/bin/ \
+    && rm -rf micro-2.0.11
+
 # Копируем файл с зависимостями (requirements.txt)
 COPY requirements.txt /app/
 
@@ -24,4 +29,4 @@ COPY . /app/
 EXPOSE 5432 6379 9000 8000
 
 # Запускаем приложение
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--forwarded-allow-ips", "*"]

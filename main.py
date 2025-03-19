@@ -95,7 +95,10 @@ app.add_middleware(
 
 # Раздача файлов из папки user_logo (ПОТОМ С СЕРВАКА КОГДА ОТДАВАТЬ БУДЕМ СДЕЛАТЬ ПРАВИЛЬНЫЙ КОНФИГ!!!!!!)
 # TODO в функции def move_image_to_user_logo (вьюхи) тоже поставить правильный конфиг в переменной!!!!!!
-app.mount("/user_logo", StaticFiles(directory="user_logo"), name="user_logo")
+app.mount("/app/video_temp", StaticFiles(directory="/app/video_temp"), name="video_temp")
+app.mount("/app/user_logo", StaticFiles(directory="/app/user_logo"), name="user_logo")
+app.mount("/app/image_temp", StaticFiles(directory="/app/image_temp"), name="image_temp")
+app.mount("/app/user_video_posters", StaticFiles(directory="/app/user_video_posters"), name="user_video_posters")
 
 
 # Установка зависимости для подключения Редиса, чтобы прокидывать потом в нужные эндпоинты
