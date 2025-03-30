@@ -3,6 +3,8 @@
 import os
 import time
 import asyncio
+import secrets
+import string
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -197,3 +199,54 @@ async def clean_old_logs(log_file: str, max_age_minutes: int = 10):
     except Exception as e:
         logger.error(f"Ошибка при очистке логов: {e}", exc_info=True)
 
+
+
+async def generate_unique_link(length=12, prefix="https://sttore.link/"):
+    """Генерация случайной уникальной ссылки в формате xxxx-xxxx-xxxx-xxxx"""
+    alphabet = string.ascii_lowercase + string.digits
+    while True:
+        # Генерируем 4 блока по 4 символа
+        part1 = ''.join(secrets.choice(alphabet) for _ in range(4))
+        part2 = ''.join(secrets.choice(alphabet) for _ in range(4))
+        part3 = ''.join(secrets.choice(alphabet) for _ in range(4))
+        part4 = ''.join(secrets.choice(alphabet) for _ in range(4))
+        link = f"{prefix}{part1}-{part2}-{part3}-{part4}"
+        return link  # Уникальность проверим на уровне БД через unique=True
+
+
+async def move_image_to_user_logo(image_path: str, created_dirs: dict) -> str:
+    """
+    Перемещение изображения из временной директории в директорию user_logo и возврат пути к файлу.
+
+    :param image_path: Путь к изображению.
+    :param created_dirs: Словарь с созданными директориями. (Вытащить оттуда нужный путь)
+    :return: Путь к файлу в директории user_logo.
+    """
+    try:
+        user_logo_dir = created_dirs.get("user_logo", {}).get("path", "")
+
+        if not user_logo_dir:
+            logger.error("Ошибка: директория 'user_logo' не найдена в конфигурации.")
+            raise HTTPException(status_code=500, detail="Директория 'user_logo' не найдена в конфигурации.")
+
+        # Генерация уникального имени файла
+        user_logo_filename = f'{uuid4()}_{os.path.basename(image_path)}'
+        user_logo_path = os.path.join(user_logo_dir, user_logo_filename)
+
+        # Перемещение в постоянную директорию перед сохранением в БД
+        shutil.move(image_path, user_logo_path)
+
+        file_size = os.path.getsize(user_logo_path) / (1024 * 1024)
+        logger.info(f"Изображение перемещено в директорию user_logo: {user_logo_path} (Размер: {file_size:.2f} MB)")
+
+        logger.info(f"Путь к файлу для сохранения в БД: {user_logo_path}")
+
+        # Возврат пути к файлу, а не URL
+        return user_logo_path
+
+    except FileNotFoundError as fnf_error:
+        logger.error(f"Файл не найден: {fnf_error}")
+        raise HTTPException(status_code=404, detail="Файл для перемещения не найден")
+    except Exception as e:
+        logger.error(f"Ошибка при перемещении изображения в директорию user_logo: {e}")
+        raise HTTPException(status_code=500, detail="Не удалось переместить изображение в директорию user_logo")

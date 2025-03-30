@@ -26,8 +26,7 @@ from typing import List, Dict, Set, Tuple
 from logging_config import get_logger
 from database import get_db_session, get_db_session_for_worker
 from models import UserProfiles, Favorite, Hashtag, ProfileHashtag, User
-from utils import datetime_to_str, process_coordinates_for_response, parse_coordinates
-from views import move_image_to_user_logo
+from utils import datetime_to_str, process_coordinates_for_response, parse_coordinates, generate_unique_link, move_image_to_user_logo
 from schemas import serialize_form_data, FormData
 
 
@@ -491,6 +490,7 @@ async def get_profiles_by_hashtag(
                     "coordinates": await process_coordinates_for_response(profile.coordinates),
                     "followers_count": profile.followers_count,
                     "created_at": await datetime_to_str(profile.created_at),
+                    "user_link": profile.user_link,
                     "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
                 }
                 for profile in profiles
@@ -585,6 +585,7 @@ async def get_profiles_by_ids(profile_ids: List[int]) -> List[dict]:
                         "website_or_social": profile.website_or_social,
                         "is_admin": profile.is_admin,
                         "language": profile.language,
+                        "user_link": profile.user_link,
                         "user": {
                             "id": profile.user.id,
                             "wallet_number": profile.user.wallet_number
@@ -620,6 +621,7 @@ async def save_profile_to_db_without_video(
 ):
     """
     Сохраняет или обновляет профиль пользователя в базе данных без видео.
+    Генерирует user_link при создании профиля и сохраняет существующий при обновлении.
 
     :param form_data: Данные формы.
     :param image_data: Данные изображения.
@@ -653,35 +655,27 @@ async def save_profile_to_db_without_video(
         # Если new_user_image == True, обрабатываем новое изображение
         user_logo_path = None
         if new_user_image:
-            # Извлечение путей к файлам из JSON
             try:
                 image_path = image_data.get("image_path")
-
                 if not image_path:
                     raise ValueError("Путь к файлу не был найден в данных JSON.")
 
                 logger.info(f"Путь к изображению: {image_path}")
 
-                # Преобразование путей в абсолютные, если они относительные
                 absolute_image_path = os.path.abspath(image_path)
-
                 logger.info(f"Абсолютный путь к изображению: {absolute_image_path}")
 
-                # Проверка существования изображения
                 if not os.path.isfile(absolute_image_path):
                     logger.error(f"Путь к изображению не ведет к файлу: {absolute_image_path}")
                     raise HTTPException(status_code=400, detail="Указанный путь к изображению не ведет к файлу.")
 
-                # Перенос изображения в постоянную папку "user_logo"
                 try:
-                    # Перенос изображения и получение пути
                     user_logo_path = await move_image_to_user_logo(absolute_image_path, created_dirs)
                     logger.info(f"Изображение успешно перемещено в постоянную папку: {user_logo_path}")
                 except Exception as e:
                     logger.error(f"Ошибка при перемещении изображения: {str(e)}")
                     raise HTTPException(status_code=500, detail=f"Ошибка при перемещении изображения: {str(e)}")
 
-                # Преобразование user_logo_path в строку, так как это объект HttpUrl
                 if isinstance(user_logo_path, HttpUrl):
                     user_logo_path = str(user_logo_path)
 
@@ -711,7 +705,10 @@ async def save_profile_to_db_without_video(
                 is_new_profile = False  # Флаг для определения, был ли создан новый профиль
 
                 if profile:
+                    # Сохраняем неизменяемые поля
+                    current_user_link = profile.user_link
                     current_is_admin = profile.is_admin
+                    current_is_moderated = profile.is_moderated
 
                     # Обновление данных профиля
                     profile.name = form_data_dict.get("name")
@@ -724,21 +721,27 @@ async def save_profile_to_db_without_video(
                     profile.is_in_mlm = form_data_dict.get("is_in_mlm")
                     profile.is_incognito = form_data_dict.get("is_incognito", False)
                     profile.language = form_data_dict.get("language")
-                    if new_user_image:  # Обновляем аватарку только если new_user_image == True
+
+                    if new_user_image:
                         profile.user_logo_url = user_logo_path
 
                     # Обработка видео, превью и постера
-                    if delete_video:  # Если нужно удалить видео
-                        profile.video_url = None  # Видео отсутствует
-                        profile.preview_url = None  # Превью отсутствует
-                        profile.poster_url = None  # Постер отсутствует
-                    # Если delete_video == False, поля video_url, preview_url и poster_url остаются без изменений
+                    if delete_video:
+                        profile.video_url = None
+                        profile.preview_url = None
+                        profile.poster_url = None
 
+                    # Восстанавливаем неизменяемые поля
+                    profile.user_link = current_user_link
                     profile.is_admin = current_is_admin
+                    profile.is_moderated = current_is_moderated
 
                     session.add(profile)
-                    logger.info(f"Обновлен профиль пользователя {user.id}, is_admin сохранен: {current_is_admin}")
+                    logger.info(f"Обновлен профиль пользователя {user.id}, user_link сохранен: {current_user_link}")
                 else:
+                    # Генерируем уникальную ссылку только для нового профиля
+                    user_link = await generate_unique_link()
+
                     # Создание нового профиля
                     new_profile = UserProfiles(
                         name=form_data_dict.get("name"),
@@ -754,79 +757,69 @@ async def save_profile_to_db_without_video(
                         user_id=user.id,
                         language=form_data_dict.get("language"),
                         user_logo_url=user_logo_path if new_user_image else None,
-                        # Добавляем путь к логотипу только если new_user_image == True
-                        video_url=None,  # Видео отсутствует
-                        preview_url=None,  # Превью отсутствует
-                        poster_url=None  # Постер отсутствует
+                        user_link=user_link,  # Добавляем сгенерированную ссылку
+                        video_url=None,
+                        preview_url=None,
+                        poster_url=None
                     )
 
                     user.is_profile_created = True
-
                     session.add(new_profile)
                     await session.flush()
                     profile = new_profile
-                    is_new_profile = True  # Устанавливаем флаг, что профиль новый
-                    logger.info(
-                        f"Создан профиль для пользователя {user.id}, флаг is_profile_created установлен в True")
+                    is_new_profile = True
+                    logger.info(f"Создан профиль для пользователя {user.id} с user_link: {user_link}")
 
-                # Работа с хэштегами (если они переданы)
-                if form_data.get("hashtags"):  # Проверяем, что хэштеги переданы
+                # Работа с хэштегами (безопасная, с проверкой существующих связей)
+                if form_data.get("hashtags"):
                     hashtags_list = [tag.strip().lower().lstrip("#") for tag in form_data["hashtags"] if tag.strip()]
 
                     if hashtags_list:
-                        # Поиск и проверка существующих хэштегов
+                        # 1. Получаем существующие хэштеги
                         existing_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
                         existing_hashtags_result = await session.execute(existing_hashtags_stmt)
                         existing_hashtags = {tag.tag: tag for tag in existing_hashtags_result.scalars().all()}
 
-                        # Список для хранения новых хэштегов
+                        # 2. Создаем недостающие хэштеги
                         new_hashtags = []
-
                         for hashtag in hashtags_list:
                             if hashtag not in existing_hashtags:
-                                # Если хэштег отсутствует - добавляем
                                 new_hashtag = Hashtag(tag=hashtag)
                                 session.add(new_hashtag)
                                 new_hashtags.append(new_hashtag)
 
-                        # Фиксируем новые хэштеги в базе данных
-                        await session.flush()
+                        await session.flush()  # Фиксируем новые хэштеги для получения их ID
 
-                        # Теперь создаем связи между профилем и хэштегами
+                        # 3. Получаем ВСЕ хэштеги (новые и существующие) с их ID
+                        all_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
+                        all_hashtags_result = await session.execute(all_hashtags_stmt)
+                        all_hashtags = {tag.tag: tag for tag in all_hashtags_result.scalars().all()}
+
+                        # 4. Получаем существующие связи профиля с хэштегами
+                        existing_links_stmt = select(ProfileHashtag).where(
+                            ProfileHashtag.profile_id == profile.id,
+                            ProfileHashtag.hashtag_id.in_([h.id for h in all_hashtags.values()])
+                        )
+                        existing_links_result = await session.execute(existing_links_stmt)
+                        existing_links = {link.hashtag_id for link in existing_links_result.scalars().all()}
+
+                        # 5. Создаем только отсутствующие связи
                         for hashtag in hashtags_list:
-                            if hashtag not in existing_hashtags:
-                                # Находим новый хэштег в списке new_hashtags
-                                new_hashtag = next((h for h in new_hashtags if h.tag == hashtag), None)
-                                if new_hashtag:
-                                    # Добавление связи между профилем и новым хэштегом
-                                    profile_hashtag = ProfileHashtag(profile_id=profile.id, hashtag_id=new_hashtag.id)
-                                    session.add(profile_hashtag)
-                            else:
-                                # Проверяем, существует ли уже связь между профилем и хэштегом
-                                existing_link_stmt = select(ProfileHashtag).where(
-                                    ProfileHashtag.profile_id == profile.id,
-                                    ProfileHashtag.hashtag_id == existing_hashtags[hashtag].id
-                                )
-                                existing_link_result = await session.execute(existing_link_stmt)
-                                existing_link = existing_link_result.scalars().first()
+                            hashtag_id = all_hashtags[hashtag].id
+                            if hashtag_id not in existing_links:
+                                profile_hashtag = ProfileHashtag(profile_id=profile.id, hashtag_id=hashtag_id)
+                                session.add(profile_hashtag)
 
-                                if not existing_link:
-                                    # Если связи нет, добавляем её
-                                    profile_hashtag = ProfileHashtag(profile_id=profile.id,
-                                                                     hashtag_id=existing_hashtags[hashtag].id)
-                                    session.add(profile_hashtag)
+                        logger.info(f"Хэштеги обработаны для профиля {wallet_number}")
 
-                        logger.info(f"Хэштеги добавлены/обновлены для профиля пользователя {wallet_number}")
-
-                # Подтверждаем изменения в БД
                 await session.commit()
 
-                # Формируем сообщение в зависимости от того, был ли создан новый профиль
                 message = "Профиль успешно обновлен" if not is_new_profile else "Профиль успешно сохранен"
                 logger.info(f"{message}.")
                 return {
                     "message": message,
-                    "profile_id": profile.id  # Добавляем ID профиля
+                    "profile_id": profile.id,
+                    "user_link": profile.user_link  # Возвращаем ссылку (новую или существующую)
                 }
 
             except OperationalError as e:
@@ -1084,6 +1077,7 @@ async def fetch_and_cache_profiles(redis_client: redis.Redis) -> tuple[int, int]
                         "website_or_social": profile.website_or_social,
                         "is_admin": profile.is_admin,
                         "language": profile.language,
+                        "user_link": profile.user_link,
                         "user": user_data,  # Добавлен блок данных о пользователе
                     }
 

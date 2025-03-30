@@ -129,14 +129,14 @@ MIME-тип или расширение, но на самом деле явля�
     "is_in_mlm": 1,
     "is_incognito": false,
     "name": "Кусок ссанины",
-    "wallet_number": "0x29b0B8cfa07fA65f36Ad653F679D36EBC7d4475",
+    "wallet_number": "0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4475",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/978fa093-0646-49a4-a751-bbb277e7579e_молекула_preview_rev_1.png"
+    "image_path": "./image_temp/9cc7f20d-46cc-4375-977b-401228b60669_молекула_preview_rev_1.png"
   },
   "video_data": {
-    "video_path": "./video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4"
+    "video_path": "./video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4"
   }
 }
 

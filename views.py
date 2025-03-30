@@ -24,7 +24,8 @@ from redis.exceptions import RedisError
 
 from models import UserProfiles, Hashtag, ProfileHashtag, User
 from database import get_db_session_for_worker
-from utils import process_coordinates_for_response, datetime_to_str, get_file_size, calculate_distance
+from utils import process_coordinates_for_response, datetime_to_str, get_file_size, calculate_distance, generate_unique_link
+from cashe import get_favorites_from_cache
 
 from logging_config import get_logger
 
@@ -324,6 +325,7 @@ async def get_all_profiles(
                     "coordinates": await process_coordinates_for_response(profile.coordinates),
                     "followers_count": profile.followers_count,
                     "website_or_social": profile.website_or_social,
+                    "user_link": profile.user_link,
                     "user": {
                         "id": profile.user.id,
                         "wallet_number": profile.user.wallet_number,
@@ -434,6 +436,7 @@ async def get_profiles_by_city(city: str, page: int, sort_by: str, per_page: int
                     "coordinates": coordinates,
                     "followers_count": profile.followers_count,
                     "website_or_social": profile.website_or_social,
+                    "user_link": profile.user_link,
                     "user": {
                         "id": profile.user.id,
                         "wallet_number": profile.user.wallet_number,
@@ -506,6 +509,7 @@ async def get_profile_by_wallet_number(wallet_number: str):
                 "coordinates": await process_coordinates_for_response(profile.coordinates),  # Обработка координат
                 "followers_count": profile.followers_count,
                 "created_at": await datetime_to_str(profile.created_at),  # Преобразование даты в строку
+                "user_link": profile.user_link,
                 "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],  # Хэштеги текущего профиля
             }
 
@@ -560,7 +564,8 @@ async def get_profile_by_username(username: str) -> List[dict]:
                     "city": profile.city,
                     "coordinates": await process_coordinates_for_response(profile.coordinates),  # Обработка координат
                     "followers_count": profile.followers_count,
-                    "created_at": await datetime_to_str(profile.created_at),  # Преобразование даты в строку
+                    "created_at": await datetime_to_str(profile.created_at), # Преобразование даты в строку
+                    "user_link": profile.user_link,
                     "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],  # Хэштеги текущего профиля
                 }
                 profiles_data.append(profile_data)
@@ -645,6 +650,7 @@ async def fetch_nearby_profiles(longitude: float, latitude: float, radius: int =
                                 "user_logo_url": profile.user_logo_url,
                                 "video_url": profile.video_url,
                                 "preview_url": profile.preview_url,
+                                "poster_url": profile.poster_url,
                                 "activity_and_hobbies": profile.activity_and_hobbies,
                                 "is_moderated": profile.is_moderated,
                                 "is_incognito": profile.is_incognito,
@@ -661,6 +667,7 @@ async def fetch_nearby_profiles(longitude: float, latitude: float, radius: int =
                                 "website_or_social": profile.website_or_social,
                                 "is_admin": profile.is_admin,
                                 "language": profile.language,
+                                "user_link": profile.user_link
                             }
                             profile_list.append(profile_data)
                             break
@@ -751,6 +758,7 @@ async def get_profiles_for_moderation(
                     "coordinates": coordinates,
                     "followers_count": profile.followers_count,
                     "website_or_social": profile.website_or_social,
+                    "user_link": profile.user_link,
                     "user": {
                         "id": profile.user.id,
                         "wallet_number": profile.user.wallet_number,
@@ -953,3 +961,180 @@ async def moderate_profile(
             await session.rollback()
             logger.error(f"Ошибка при модерации профиля: {e}")
             raise HTTPException(status_code=500, detail="Ошибка сервера при модерации профиля, да.")
+
+
+# Логика генерации новой ссылки для профиля и формирование нового ответа на фронт
+async def regenerate_user_link(profile_id: int):
+    """
+    Генерирует новую уникальную ссылку для профиля, сохраняет в БД и возвращает полные данные профиля
+    с корректной загрузкой хэштегов и избранного
+
+    :param profile_id: ID профиля для обновления
+    :return: Полные данные профиля с новой ссылкой в требуемом формате
+    """
+    async with get_db_session_for_worker() as session:
+        try:
+            # 1. Получаем профиль из БД с загрузкой хэштегов
+            stmt = select(UserProfiles).where(UserProfiles.id == profile_id).options(
+                selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag)
+            )
+            result = await session.execute(stmt)
+            profile = result.scalars().first()
+
+            if not profile:
+                raise HTTPException(status_code=404, detail="Профиль не найден")
+
+            # 2. Получаем пользователя
+            stmt_user = select(User).where(User.id == profile.user_id)
+            result_user = await session.execute(stmt_user)
+            user = result_user.scalars().first()
+
+            if not user:
+                raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+            # 3. Генерируем новую ссылку
+            new_user_link = await generate_unique_link()
+
+            # 4. Обновляем ссылку в профиле
+            profile.user_link = new_user_link
+            session.add(profile)
+            await session.commit()
+
+            # 5. Формируем данные профиля для ответа (как в /api/user/login)
+            coordinates = await process_coordinates_for_response(profile.coordinates) if profile.coordinates else None
+            created_at_str = await datetime_to_str(profile.created_at) if profile.created_at else None
+
+            profile_data = {
+                "id": profile.id,
+                "name": profile.name,
+                "user_logo_url": profile.user_logo_url,
+                "video_url": profile.video_url,
+                "preview_url": profile.preview_url,
+                "poster_url": profile.poster_url,
+                "activity_and_hobbies": profile.activity_and_hobbies,
+                "is_moderated": profile.is_moderated,
+                "is_incognito": profile.is_incognito,
+                "is_in_mlm": profile.is_in_mlm,
+                "adress": profile.adress,
+                "city": profile.city,
+                "coordinates": coordinates,
+                "followers_count": profile.followers_count,
+                "created_at": created_at_str,
+                "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
+                "website_or_social": profile.website_or_social,
+                "is_admin": profile.is_admin,
+                "language": profile.language,
+                "user_link": profile.user_link
+            }
+
+            # 6. Получаем избранное (полные данные профилей, а не только ID)
+            favorites = await get_favorites_from_cache(user.id)
+            logger.info(f"Получено избранное: {[fav['id'] for fav in favorites]}")
+
+            # 7. Формируем итоговый ответ в том же формате, что и /api/user/login
+            response_data = {
+                "id": user.id,
+                "profile": profile_data,
+                "favorites": favorites  # Полные данные избранных профилей
+            }
+
+            return response_data
+
+        except SQLAlchemyError as e:
+            await session.rollback()
+            logger.error(f"Ошибка базы данных: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Ошибка работы с базой данных"
+            )
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Непредвиденная ошибка: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Ошибка при обработке запроса"
+            )
+
+
+# Логика получения профиля по ссылке
+async def get_profile_by_link(user_link: str):
+    """
+    Получает полные данные профиля по уникальной ссылке
+
+    :param user_link: Уникальная ссылка профиля
+    :return: Данные профиля в том же формате, что и regenerate_user_link
+    """
+    async with get_db_session_for_worker() as session:
+        try:
+            # 1. Получаем профиль из БД с загрузкой хэштегов
+            stmt = select(UserProfiles).where(
+                UserProfiles.user_link == user_link
+            ).options(
+                selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag),
+                selectinload(UserProfiles.user)
+            )
+            result = await session.execute(stmt)
+            profile = result.scalars().first()
+
+            if not profile:
+                raise HTTPException(status_code=404, detail="Профиль по данной ссылке не найден")
+
+            # 2. Получаем связанного пользователя
+            user = profile.user
+            if not user:
+                raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+            # 3. Формируем данные профиля для ответа
+            coordinates = await process_coordinates_for_response(profile.coordinates) if profile.coordinates else None
+            created_at_str = await datetime_to_str(profile.created_at) if profile.created_at else None
+
+            profile_data = {
+                "id": profile.id,
+                "name": profile.name,
+                "user_logo_url": profile.user_logo_url,
+                "video_url": profile.video_url,
+                "preview_url": profile.preview_url,
+                "poster_url": profile.poster_url,
+                "activity_and_hobbies": profile.activity_and_hobbies,
+                "is_moderated": profile.is_moderated,
+                "is_incognito": profile.is_incognito,
+                "is_in_mlm": profile.is_in_mlm,
+                "adress": profile.adress,
+                "city": profile.city,
+                "coordinates": coordinates,
+                "followers_count": profile.followers_count,
+                "created_at": created_at_str,
+                "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
+                "website_or_social": profile.website_or_social,
+                "is_admin": profile.is_admin,
+                "language": profile.language,
+                "user_link": profile.user_link
+            }
+
+            # 4. Получаем избранное (для текущего пользователя, если авторизован)
+            favorites = []
+            if user:
+                favorites = await get_favorites_from_cache(user.id)
+                logger.info(f"Получено избранное для пользователя {user.id}")
+
+            # 5. Формируем итоговый ответ
+            response_data = {
+                "id": user.id,
+                "profile": profile_data,
+                "favorites": favorites
+            }
+
+            return response_data
+
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка базы данных: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Ошибка работы с базой данных"
+            )
+        except Exception as e:
+            logger.error(f"Непредвиденная ошибка: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Ошибка при обработке запроса"
+            )

@@ -20,7 +20,7 @@ from shapely.geometry import Point, MultiPoint
 
 from models import UserProfiles, Hashtag, ProfileHashtag, User
 from schemas import FormData
-from utils import get_file_size
+from utils import get_file_size, generate_unique_link
 
 
 
@@ -258,6 +258,7 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
     :param user_logo_url: URL логотипа пользователя.
     :param logger: Объект логгера.
     :param wallet_number: номер кошелька юзера (прилетает уже хэшированный)
+    Уникальная ссылка генерируется только при создании профиля и сохраняется при обновлениях
     """
     try:
         async with session.begin():
@@ -275,15 +276,15 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
             # Преобразуем координаты в строку WKT, если они есть
             multi_point_wkt = None
             if coordinates:
-                # Преобразуем каждую пару координат в объект Point, а затем создаём MultiPoint
-                points = [Point(coord[0], coord[1]) for coord in coordinates]  # Долгота, Широта
+                points = [Point(coord[0], coord[1]) for coord in coordinates]
                 multi_point = MultiPoint(points)
-                # Преобразуем MultiPoint в строку WKT
                 multi_point_wkt = str(multi_point)
 
             # 2. Проверка флага is_profile_created
             if not user.is_profile_created:
-                # Если флаг False, создаем новый профиль
+                # Генерируем уникальную ссылку только при создании нового профиля
+                unique_link = await generate_unique_link()
+
                 new_profile = UserProfiles(
                     name=form_data["name"],
                     website_or_social=form_data["website_or_social"],
@@ -300,29 +301,33 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                     is_admin=False,
                     is_in_mlm=form_data["is_in_mlm"],
                     user_id=user.id,
-                    language=form_data["language"]
+                    language=form_data["language"],
+                    user_link=unique_link  # Добавляем новую ссылку
                 )
 
-                # Обновляем флаг is_profile_created в таблице User на True
                 user.is_profile_created = True
-
-                # Добавляем профиль в сессию для новой записи
                 session.add(new_profile)
-                await session.flush()  # Фиксируем профиль, чтобы получить его ID
+                await session.flush()
                 profile = new_profile
+
+                logger.info(f"Создан новый профиль с уникальной ссылкой: {unique_link}")
             else:
-                # Если флаг True, просто обновляем профиль
+                # Если профиль уже существует - получаем его текущие данные
                 stmt = select(UserProfiles).where(UserProfiles.user_id == user.id)
                 result = await session.execute(stmt)
                 profile = result.scalars().first()
 
-                # Сохраняем старое значение is_admin
+                # Сохраняем ВСЕ неизменяемые объекты при обновлении поля
+                current_unique_link = profile.user_link
                 current_is_admin = profile.is_admin
+                current_is_moderated = profile.is_moderated
 
-                # Обновляем данные профиля
+                # Обновляем только разрешенные для изменения поля
                 profile.name = form_data["name"]
-                profile.website_or_social = form_data["website_or_social"] if form_data["website_or_social"] is not None else None
-                profile.activity_and_hobbies = form_data["activity_hobbies"] if form_data["activity_hobbies"] is not None else None
+                profile.website_or_social = form_data["website_or_social"] if form_data[
+                                                                                  "website_or_social"] is not None else None
+                profile.activity_and_hobbies = form_data["activity_hobbies"] if form_data[
+                                                                                    "activity_hobbies"] is not None else None
                 profile.video_url = video_url
                 profile.preview_url = preview_url
                 profile.user_logo_url = user_logo_url
@@ -331,52 +336,42 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                 profile.city = form_data["city"] if form_data["city"] is not None else None
                 profile.coordinates = multi_point_wkt if coordinates is not None else None
                 profile.is_incognito = False
-                profile.is_moderated = False
                 profile.is_in_mlm = form_data["is_in_mlm"] if form_data["is_in_mlm"] is not None else None
                 profile.language = form_data["language"] if form_data["language"] is not None else None
 
-                # Возвращаем старое значение is_admin
+                # Возвращаем неизменяемые поля
+                profile.user_link = current_unique_link  # Сохраняем старую ссылку
                 profile.is_admin = current_is_admin
+                profile.is_moderated = current_is_moderated
 
-                # Добавляем профиль в сессию для обновления
                 session.add(profile)
+                logger.info(f"Профиль обновлен, уникальная ссылка сохранена: {current_unique_link}")
 
-                logger.info(f"Обновлены данные профиля для кошелька {wallet_number}")
-
-        # Работа с хэштегами (если они переданы)
-        if form_data.get("hashtags"):  # Проверяем, что хэштеги переданы
+        # Остальной код (работа с хэштегами) остается без изменений
+        if form_data.get("hashtags"):
             hashtags_list = [tag.strip().lower().lstrip("#") for tag in form_data["hashtags"] if tag.strip()]
 
             if hashtags_list:
-                # Поиск и проверка существующих хэштегов
                 existing_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
                 existing_hashtags_result = await session.execute(existing_hashtags_stmt)
                 existing_hashtags = {tag.tag: tag for tag in existing_hashtags_result.scalars().all()}
 
-                # Список для хранения новых хэштегов
                 new_hashtags = []
-
                 for hashtag in hashtags_list:
                     if hashtag not in existing_hashtags:
-                        # Если хэштег отсутствует - добавляем
                         new_hashtag = Hashtag(tag=hashtag)
                         session.add(new_hashtag)
                         new_hashtags.append(new_hashtag)
 
-                # Фиксируем новые хэштеги в базе данных
                 await session.flush()
 
-                # Теперь создаем связи между профилем и хэштегами
                 for hashtag in hashtags_list:
                     if hashtag not in existing_hashtags:
-                        # Находим новый хэштег в списке new_hashtags
                         new_hashtag = next((h for h in new_hashtags if h.tag == hashtag), None)
                         if new_hashtag:
-                            # Добавление связи между профилем и новым хэштегом
                             profile_hashtag = ProfileHashtag(profile_id=profile.id, hashtag_id=new_hashtag.id)
                             session.add(profile_hashtag)
                     else:
-                        # Проверяем, существует ли уже связь между профилем и хэштегом
                         existing_link_stmt = select(ProfileHashtag).where(
                             ProfileHashtag.profile_id == profile.id,
                             ProfileHashtag.hashtag_id == existing_hashtags[hashtag].id
@@ -385,25 +380,21 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                         existing_link = existing_link_result.scalars().first()
 
                         if not existing_link:
-                            # Если связи нет, добавляем её
                             profile_hashtag = ProfileHashtag(profile_id=profile.id,
                                                              hashtag_id=existing_hashtags[hashtag].id)
                             session.add(profile_hashtag)
 
-                logger.info(f"Хэштеги добавлены/обновлены для профиля пользователя {wallet_number}")
+                logger.info(f"Хэштеги обновлены для профиля {wallet_number}")
 
-        # Сохранение изменений в БД
         await session.commit()
-        logger.info(f"Видео, пользователь, логотип и хэштеги успешно сохранены для кошелька {wallet_number}")
+        logger.info(f"Данные успешно сохранены для кошелька {wallet_number}")
 
     except SQLAlchemyError as db_error:
-        # Обработка ошибок SQLAlchemy
         logger.error(f"Ошибка базы данных: {db_error}")
         await session.rollback()
         raise HTTPException(status_code=500, detail="Ошибка базы данных при сохранении видео")
 
     except Exception as e:
-        # Обработка общих ошибок
         logger.exception(f"Непредвиденная ошибка: {e}")
         await session.rollback()
         raise HTTPException(status_code=500, detail="Ошибка сохранения данных в базе")

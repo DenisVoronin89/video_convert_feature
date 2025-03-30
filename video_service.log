@@ -1,222 +1,218 @@
-2025-03-19 15:19:59,349 - ERROR - Ошибка при получении сообщения: Connection closed by server.
+2025-03-30 09:15:12,790 - INFO - Запуск подписки на канал Redis для получения задач
+2025-03-30 09:15:12,797 - INFO - Redis доступен.
+2025-03-30 09:15:12,797 - INFO - Проверка соединения с AWS S3...
+2025-03-30 09:15:13,837 - INFO - Соединение с AWS S3 установлено успешно.
+2025-03-30 09:15:13,838 - INFO - Соединение с AWS S3 установлено успешно.
+2025-03-30 09:15:13,838 - INFO - Подключаемся к Redis...
+2025-03-30 09:15:13,838 - INFO - Подписались на канал video_tasks
+2025-03-30 09:15:28,376 - ERROR - Ошибка при получении сообщения: Connection closed by server.
 Module: __main__, Function: main, Line: 181
-2025-03-19 15:21:12,042 - INFO - Запуск приложения и инициализация базы данных...
-2025-03-19 15:21:12,043 - DEBUG - Начало инициализации базы данных...
-2025-03-19 15:21:12,209 - INFO - База данных успешно инициализирована.
-2025-03-19 15:21:12,209 - INFO - Приложение успешно запущено. Соединение с базой данных установлено.
-2025-03-19 15:21:12,210 - INFO - Директория уже существует: ./video_temp
-2025-03-19 15:21:12,210 - INFO - Директория уже существует: ./image_temp
-2025-03-19 15:21:12,210 - INFO - Директория уже существует: ./output_video
-2025-03-19 15:21:12,210 - INFO - Директория уже существует: ./output_preview
-2025-03-19 15:21:12,210 - INFO - Директория уже существует: ./user_logo
-2025-03-19 15:21:12,210 - INFO - Директория уже существует: ./user_video_posters
-2025-03-19 15:21:12,215 - INFO - Задача fetch_and_cache_profiles добавлена в расписание (каждые 8 минут).
-2025-03-19 15:21:12,215 - INFO - Задача sync_data_to_db добавлена в расписание (каждые 8 минут).
-2025-03-19 15:21:12,215 - INFO - Задача очистки временных файлов добавлена в расписание (каждый день в 00:00).
-2025-03-19 15:21:12,216 - INFO - Планировщик задач успешно запущен.
-2025-03-19 15:21:12,307 - INFO - Запуск подписки на канал Redis для получения задач
-2025-03-19 15:21:12,314 - INFO - Redis доступен.
-2025-03-19 15:21:12,314 - INFO - Проверка соединения с AWS S3...
-2025-03-19 15:21:12,904 - INFO - Соединение с AWS S3 установлено успешно.
-2025-03-19 15:21:12,904 - INFO - Соединение с AWS S3 установлено успешно.
-2025-03-19 15:21:12,905 - INFO - Подключаемся к Redis...
-2025-03-19 15:21:12,905 - INFO - Подписались на канал video_tasks
-2025-03-19 15:21:33,371 - INFO - Открытие сессии с БД...
-2025-03-19 15:21:33,381 - INFO - Сессия с БД успешно открыта.
-2025-03-19 15:21:33,408 - INFO - Поиск пользователя в базе данных.
-2025-03-19 15:21:33,476 - INFO - Пользователь найден с ID 2
-2025-03-19 15:21:34,033 - INFO - Получение избранного через get_favorites_from_cache.
-2025-03-19 15:21:34,033 - INFO - Попытка получить избранное из кэша Redis для пользователя 2.
-2025-03-19 15:21:34,063 - INFO - Избранное не найдено в кэше для пользователя 2. Загружаем из базы данных.
-2025-03-19 15:21:34,063 - INFO - Открытие сессии с БД...
-2025-03-19 15:21:34,063 - INFO - Сессия с БД успешно открыта.
-2025-03-19 15:21:34,211 - INFO - У пользователя 2 нет избранных профилей.
-2025-03-19 15:21:34,211 - INFO - Закрытие сессии с БД.
-2025-03-19 15:21:34,211 - INFO - Избранное получено: []
-2025-03-19 15:21:34,211 - INFO - Генерация токенов для пользователя.
-2025-03-19 15:21:34,212 - INFO - Токены успешно сгенерированы.
-2025-03-19 15:21:34,212 - INFO - Закрытие сессии с БД.
-2025-03-19 15:22:00,874 - INFO - Получен запрос на загрузку изображения от пользователя с ID: 2
-2025-03-19 15:22:00,890 - INFO - Изображение сохранено во временной директории: ./image_temp/0dcf8730-9377-4511-8d02-e71d91f427aa_молекула_preview_rev_1.png (Размер: 0.09 MB)
-2025-03-19 15:22:00,890 - INFO - Изображение успешно загружено: ./image_temp/0dcf8730-9377-4511-8d02-e71d91f427aa_молекула_preview_rev_1.png
-2025-03-19 15:22:28,929 - INFO - Получен запрос на загрузку видео от пользователя с ID: {current_user.user_id}
-2025-03-19 15:22:28,985 - INFO - видео сохранено во временной директории: ./video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4 (Размер: 4.03 MB)
-2025-03-19 15:22:28,985 - INFO - Видео успешно загружено: ./video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4
-2025-03-19 15:23:02,355 - INFO - Получены данные профиля: {'name': 'Кусок ссанины', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Долбиться в свое очко!', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': ' ', 'language': None}
-2025-03-19 15:23:02,358 - INFO - Получены данные о изображении: {'image_path': './image_temp/0dcf8730-9377-4511-8d02-e71d91f427aa_молекула_preview_rev_1.png'}
-2025-03-19 15:23:02,358 - INFO - Получены данные о видео: {'video_path': './video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4'}
-2025-03-19 15:23:02,358 - INFO - Путь к изображению: ./image_temp/0dcf8730-9377-4511-8d02-e71d91f427aa_молекула_preview_rev_1.png
-2025-03-19 15:23:02,358 - INFO - Путь к видео: ./video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4
-2025-03-19 15:23:02,358 - INFO - Абсолютный путь к видео: /app/video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4
-2025-03-19 15:23:02,358 - INFO - Абсолютный путь к изображению: /app/image_temp/0dcf8730-9377-4511-8d02-e71d91f427aa_молекула_preview_rev_1.png
-2025-03-19 15:23:02,390 - INFO - Изображение перемещено в директорию user_logo: ./user_logo/288fc412-fdcf-4705-bb1e-fe9f1b9030ba_0dcf8730-9377-4511-8d02-e71d91f427aa_молекула_preview_rev_1.png (Размер: 0.09 MB)
-2025-03-19 15:23:02,390 - INFO - Путь к файлу для сохранения в БД: ./user_logo/288fc412-fdcf-4705-bb1e-fe9f1b9030ba_0dcf8730-9377-4511-8d02-e71d91f427aa_молекула_preview_rev_1.png
-2025-03-19 15:23:02,390 - INFO - Изображение успешно перемещено в постоянную папку: ./user_logo/288fc412-fdcf-4705-bb1e-fe9f1b9030ba_0dcf8730-9377-4511-8d02-e71d91f427aa_молекула_preview_rev_1.png
-2025-03-19 15:23:02,390 - INFO - Обработка данных профиля...
-2025-03-19 15:23:02,390 - INFO - Соединение с Redis для публикации задачи в канал установлено.
-2025-03-19 15:23:02,391 - INFO - Публикуемые данные в Redis: {input_path: /app/video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4, output_path: {'path': './output_video', 'status': 'exists'}, preview_path: {'path': './output_preview', 'status': 'exists'}, user_logo_url: /user_logo/288fc412-fdcf-4705-bb1e-fe9f1b9030ba_0dcf8730-9377-4511-8d02-e71d91f427aa_молекула_preview_rev_1.png, wallet_number:  , form_data: {'name': 'Кусок ссанины', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Долбиться в свое очко!', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': ' ', 'language': None}}
-2025-03-19 15:23:02,415 - INFO - Задача успешно отправлена в канал video_tasks: {'input_path': '/app/video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4', 'output_path': {'path': './output_video', 'status': 'exists'}, 'preview_path': {'path': './output_preview', 'status': 'exists'}, 'form_data': {'name': 'Кусок ссанины', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Долбиться в свое очко!', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': ' ', 'language': None}, 'wallet_number': ' ', 'user_logo_url': '/user_logo/288fc412-fdcf-4705-bb1e-fe9f1b9030ba_0dcf8730-9377-4511-8d02-e71d91f427aa_молекула_preview_rev_1.png'}
-2025-03-19 15:23:02,416 - INFO - Задача успешно отправлена в Redis.
-2025-03-19 15:23:02,481 - INFO - Получено сообщение от Redis: {'type': 'message', 'pattern': None, 'channel': 'video_tasks', 'data': '{"input_path": "/app/video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4", "output_path": {"path": "./output_video", "status": "exists"}, "preview_path": {"path": "./output_preview", "status": "exists"}, "form_data": {"name": "\\u041a\\u0443\\u0441\\u043e\\u043a \\u0441\\u0441\\u0430\\u043d\\u0438\\u043d\\u044b", "website_or_social": "https://twitter.com/johndoe", "activity_hobbies": "\\u0414\\u043e\\u043b\\u0431\\u0438\\u0442\\u044c\\u0441\\u044f \\u0432 \\u0441\\u0432\\u043e\\u0435 \\u043e\\u0447\\u043a\\u043e!", "hashtags": ["#gaming", "#travel", "#photography"], "adress": ["123 Example Street, Example City", "456 Another Street, Another City"], "city": "Example City", "coordinates": [[37.7749, -122.4194], [48.8566, 2.3522]], "is_in_mlm": 1, "is_incognito": false, "wallet_number": " ", "language": null}, "wallet_number": " ", "user_logo_url": "/user_logo/288fc412-fdcf-4705-bb1e-fe9f1b9030ba_0dcf8730-9377-4511-8d02-e71d91f427aa_\\u043c\\u043e\\u043b\\u0435\\u043a\\u0443\\u043b\\u0430_preview_rev_1.png"}'}
-2025-03-19 15:23:02,506 - INFO - Получена задача для обработки: {'input_path': '/app/video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4', 'output_path': {'path': './output_video', 'status': 'exists'}, 'preview_path': {'path': './output_preview', 'status': 'exists'}, 'form_data': {'name': 'Кусок ссанины', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Долбиться в свое очко!', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [[37.7749, -122.4194], [48.8566, 2.3522]], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': ' ', 'language': None}, 'wallet_number': ' ', 'user_logo_url': '/user_logo/288fc412-fdcf-4705-bb1e-fe9f1b9030ba_0dcf8730-9377-4511-8d02-e71d91f427aa_молекула_preview_rev_1.png'}
-2025-03-19 15:23:02,507 - INFO - Начинаю конвертацию видео /app/video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4 в VP9
-2025-03-19 15:23:02,511 - INFO - Запуск конвертации видео в VP9: /app/video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4 -> ./48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_converted.webm
-2025-03-19 15:23:21,687 - INFO - Конвертация в VP9 завершена: ./48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_converted.webm (Размер: 1.44 MB, Время: 19.18 сек.)
-2025-03-19 15:23:21,689 - INFO - Видео успешно обработано: ./48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_converted.webm (Размер: 1.44 MB)
-2025-03-19 15:23:21,690 - INFO - Путь к конвертированному видео: ./48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_converted.webm
-2025-03-19 15:23:21,690 - INFO - Задача конвертации для /app/video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4 завершена успешно
-2025-03-19 15:23:21,690 - INFO - Начинаю извлечение превью для /app/video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4
-2025-03-19 15:23:21,690 - INFO - Извлечение превью из видео: /app/video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4 -> ./48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_preview.webm (Длительность: 5 сек.)
-2025-03-19 15:23:28,949 - INFO - Извлечение превью завершено: ./48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_preview.webm (Размер: 0.54 MB, Время: 7.26 сек.)
-2025-03-19 15:23:28,951 - INFO - Превью успешно извлечено: ./48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_preview.webm (Размер: 0.54 MB)
-2025-03-19 15:23:28,951 - INFO - Путь к извлеченному превью: ./48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_preview.webm
-2025-03-19 15:23:28,951 - INFO - Извлечение превью для /app/video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4 завершено успешно
-2025-03-19 15:23:28,951 - INFO - Начинаю извлечение постера для /app/video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4
-2025-03-19 15:23:28,954 - INFO - Извлечение кадра из видео: ./48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_preview.webm -> user_video_posters/5c82e45d0d754cca9885a455c77f7e44.jpg (Время: 2 сек.)
-2025-03-19 15:23:29,064 - INFO - Извлечение кадра завершено: user_video_posters/5c82e45d0d754cca9885a455c77f7e44.jpg (Время: 0.11 сек.)
-2025-03-19 15:23:29,064 - INFO - Кадр успешно извлечён и сохранён: user_video_posters/5c82e45d0d754cca9885a455c77f7e44.jpg
-2025-03-19 15:23:29,064 - INFO - Извлечение постера для /app/video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4 завершено успешно. Путь: user_video_posters/5c82e45d0d754cca9885a455c77f7e44.jpg
-2025-03-19 15:23:29,065 - INFO - Начинаю загрузку видео {'path': './output_video', 'status': 'exists'} и превью {'path': './output_preview', 'status': 'exists'} в S3
-2025-03-19 15:23:29,702 - INFO - Соединение с AWS S3 установлено успешно.
-2025-03-19 15:23:29,775 - INFO - Загрузка видео в AWS S3: ./48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_converted.webm -> 48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_converted.webm
-2025-03-19 15:23:36,542 - INFO - Видео успешно загружено в AWS S3: 48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_converted.webm
-2025-03-19 15:23:36,544 - INFO - Загрузка превью в AWS S3: ./48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_preview.webm -> 48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_preview.webm
-2025-03-19 15:23:38,298 - INFO - Превью успешно загружено в AWS S3: 48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_preview.webm
-2025-03-19 15:23:38,300 - INFO - Загруженные файлы: Видео - https://stt-market-videos.s3.eu-north-1.amazonaws.com/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_converted.webm, Превью - https://stt-market-videos.s3.eu-north-1.amazonaws.com/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_preview.webm
-2025-03-19 15:23:38,302 - INFO - Загрузка видео {'path': './output_video', 'status': 'exists'} в S3 завершена успешно. URL: https://stt-market-videos.s3.eu-north-1.amazonaws.com/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_converted.webm
-2025-03-19 15:23:38,302 - INFO - Загрузка превью {'path': './output_preview', 'status': 'exists'} в S3 завершена успешно. URL: https://stt-market-videos.s3.eu-north-1.amazonaws.com/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4_preview.webm
-2025-03-19 15:23:38,303 - INFO - Начинаю сохранение профиля в БД для пользователя Кусок ссанины
-2025-03-19 15:23:38,304 - INFO - Открытие сессии с БД...
-2025-03-19 15:23:38,311 - INFO - Сессия с БД успешно открыта.
-2025-03-19 15:23:38,488 - ERROR - Непредвиденная ошибка: 400: Пользователь с данным кошельком не найден.
-Module: logging, Function: exception, Line: 1554
-Traceback (most recent call last):
-  File "/app/video_handle/video_handler_worker.py", line 270, in save_profile_to_db
-    raise HTTPException(status_code=400, detail="Пользователь с данным кошельком не найден.")
-fastapi.exceptions.HTTPException: 400: Пользователь с данным кошельком не найден.
-2025-03-19 15:23:38,505 - ERROR - Ошибка в контексте сессии: 500: Ошибка сохранения данных в базе
-Module: database, Function: get_db_session_for_worker, Line: 71
-2025-03-19 15:23:38,505 - INFO - Закрытие сессии с БД.
-2025-03-19 15:23:38,505 - ERROR - Ошибка при обработке задачи для видео /app/video_temp/48c831be-fac3-44db-9b6c-181201b50e24_100672-video-720.mp4: 500: Ошибка сохранения данных в базе
-Module: __main__, Function: handle_task, Line: 111
-2025-03-19 15:23:38,505 - INFO - Данные задачи очищены.
-2025-03-19 15:23:38,505 - ERROR - Ошибка при получении сообщения: 500: Ошибка сохранения данных в базе
+2025-03-30 09:16:32,350 - INFO - Запуск приложения и инициализация базы данных...
+2025-03-30 09:16:32,354 - DEBUG - Начало инициализации базы данных...
+2025-03-30 09:16:32,447 - INFO - База данных успешно инициализирована.
+2025-03-30 09:16:32,447 - INFO - Приложение успешно запущено. Соединение с базой данных установлено.
+2025-03-30 09:16:32,447 - INFO - Директория уже существует: ./video_temp
+2025-03-30 09:16:32,447 - INFO - Директория уже существует: ./image_temp
+2025-03-30 09:16:32,447 - INFO - Директория уже существует: ./output_video
+2025-03-30 09:16:32,447 - INFO - Директория уже существует: ./output_preview
+2025-03-30 09:16:32,447 - INFO - Директория уже существует: ./user_logo
+2025-03-30 09:16:32,447 - INFO - Директория уже существует: ./user_video_posters
+2025-03-30 09:16:32,451 - INFO - Задача fetch_and_cache_profiles добавлена в расписание (каждые 8 минут).
+2025-03-30 09:16:32,451 - INFO - Задача sync_data_to_db добавлена в расписание (каждые 8 минут).
+2025-03-30 09:16:32,452 - INFO - Задача очистки временных файлов добавлена в расписание (каждый день в 00:00).
+2025-03-30 09:16:32,452 - INFO - Планировщик задач успешно запущен.
+2025-03-30 09:16:32,605 - INFO - Запуск подписки на канал Redis для получения задач
+2025-03-30 09:16:32,612 - INFO - Redis доступен.
+2025-03-30 09:16:32,612 - INFO - Проверка соединения с AWS S3...
+2025-03-30 09:16:33,377 - INFO - Соединение с AWS S3 установлено успешно.
+2025-03-30 09:16:33,378 - INFO - Соединение с AWS S3 установлено успешно.
+2025-03-30 09:16:33,378 - INFO - Подключаемся к Redis...
+2025-03-30 09:16:33,378 - INFO - Подписались на канал video_tasks
+2025-03-30 09:17:19,206 - INFO - Открытие сессии с БД...
+2025-03-30 09:17:19,209 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:17:19,232 - INFO - Поиск пользователя в базе данных.
+2025-03-30 09:17:19,267 - INFO - Пользователь не найден, создаем нового.
+2025-03-30 09:17:19,300 - INFO - Создан новый пользователь с ID 3
+2025-03-30 09:17:19,301 - INFO - Генерация токенов для пользователя.
+2025-03-30 09:17:19,303 - INFO - Токены успешно сгенерированы.
+2025-03-30 09:17:19,304 - INFO - Закрытие сессии с БД.
+2025-03-30 09:17:49,476 - INFO - Получен запрос на загрузку изображения от пользователя с ID: 3
+2025-03-30 09:17:49,497 - INFO - Изображение сохранено во временной директории: ./image_temp/9cc7f20d-46cc-4375-977b-401228b60669_молекула_preview_rev_1.png (Размер: 0.09 MB)
+2025-03-30 09:17:49,497 - INFO - Изображение успешно загружено: ./image_temp/9cc7f20d-46cc-4375-977b-401228b60669_молекула_preview_rev_1.png
+2025-03-30 09:18:17,824 - INFO - Получен запрос на загрузку видео от пользователя с ID: {current_user.user_id}
+2025-03-30 09:18:17,868 - INFO - видео сохранено во временной директории: ./video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4 (Размер: 4.65 MB)
+2025-03-30 09:18:17,868 - INFO - Видео успешно загружено: ./video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4
+2025-03-30 09:19:06,455 - INFO - Получены данные профиля: {'name': 'Кусок ссанины', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Долбиться в свое очко!', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4475', 'language': None}
+2025-03-30 09:19:06,456 - INFO - Получены данные о изображении: {'image_path': './image_temp/9cc7f20d-46cc-4375-977b-401228b60669_молекула_preview_rev_1.png'}
+2025-03-30 09:19:06,456 - INFO - Получены данные о видео: {'video_path': './video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4'}
+2025-03-30 09:19:06,456 - INFO - Путь к изображению: ./image_temp/9cc7f20d-46cc-4375-977b-401228b60669_молекула_preview_rev_1.png
+2025-03-30 09:19:06,456 - INFO - Путь к видео: ./video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4
+2025-03-30 09:19:06,457 - INFO - Абсолютный путь к видео: /app/video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4
+2025-03-30 09:19:06,457 - INFO - Абсолютный путь к изображению: /app/image_temp/9cc7f20d-46cc-4375-977b-401228b60669_молекула_preview_rev_1.png
+2025-03-30 09:19:06,462 - INFO - Изображение перемещено в директорию user_logo: ./user_logo/69304da1-a051-4896-ad43-c29b6fb21597_9cc7f20d-46cc-4375-977b-401228b60669_молекула_preview_rev_1.png (Размер: 0.09 MB)
+2025-03-30 09:19:06,462 - INFO - Путь к файлу для сохранения в БД: ./user_logo/69304da1-a051-4896-ad43-c29b6fb21597_9cc7f20d-46cc-4375-977b-401228b60669_молекула_preview_rev_1.png
+2025-03-30 09:19:06,462 - INFO - Изображение успешно перемещено в постоянную папку: ./user_logo/69304da1-a051-4896-ad43-c29b6fb21597_9cc7f20d-46cc-4375-977b-401228b60669_молекула_preview_rev_1.png
+2025-03-30 09:19:06,462 - INFO - Обработка данных профиля...
+2025-03-30 09:19:06,462 - INFO - Соединение с Redis для публикации задачи в канал установлено.
+2025-03-30 09:19:06,462 - INFO - Публикуемые данные в Redis: {input_path: /app/video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4, output_path: {'path': './output_video', 'status': 'exists'}, preview_path: {'path': './output_preview', 'status': 'exists'}, user_logo_url: /user_logo/69304da1-a051-4896-ad43-c29b6fb21597_9cc7f20d-46cc-4375-977b-401228b60669_молекула_preview_rev_1.png, wallet_number: 0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4475, form_data: {'name': 'Кусок ссанины', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Долбиться в свое очко!', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4475', 'language': None}}
+2025-03-30 09:19:06,478 - INFO - Задача успешно отправлена в канал video_tasks: {'input_path': '/app/video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4', 'output_path': {'path': './output_video', 'status': 'exists'}, 'preview_path': {'path': './output_preview', 'status': 'exists'}, 'form_data': {'name': 'Кусок ссанины', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Долбиться в свое очко!', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4475', 'language': None}, 'wallet_number': '0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4475', 'user_logo_url': '/user_logo/69304da1-a051-4896-ad43-c29b6fb21597_9cc7f20d-46cc-4375-977b-401228b60669_молекула_preview_rev_1.png'}
+2025-03-30 09:19:06,478 - INFO - Задача успешно отправлена в Redis.
+2025-03-30 09:19:06,487 - INFO - Получено сообщение от Redis: {'type': 'message', 'pattern': None, 'channel': 'video_tasks', 'data': '{"input_path": "/app/video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4", "output_path": {"path": "./output_video", "status": "exists"}, "preview_path": {"path": "./output_preview", "status": "exists"}, "form_data": {"name": "\\u041a\\u0443\\u0441\\u043e\\u043a \\u0441\\u0441\\u0430\\u043d\\u0438\\u043d\\u044b", "website_or_social": "https://twitter.com/johndoe", "activity_hobbies": "\\u0414\\u043e\\u043b\\u0431\\u0438\\u0442\\u044c\\u0441\\u044f \\u0432 \\u0441\\u0432\\u043e\\u0435 \\u043e\\u0447\\u043a\\u043e!", "hashtags": ["#gaming", "#travel", "#photography"], "adress": ["123 Example Street, Example City", "456 Another Street, Another City"], "city": "Example City", "coordinates": [[37.7749, -122.4194], [48.8566, 2.3522]], "is_in_mlm": 1, "is_incognito": false, "wallet_number": "0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4475", "language": null}, "wallet_number": "0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4475", "user_logo_url": "/user_logo/69304da1-a051-4896-ad43-c29b6fb21597_9cc7f20d-46cc-4375-977b-401228b60669_\\u043c\\u043e\\u043b\\u0435\\u043a\\u0443\\u043b\\u0430_preview_rev_1.png"}'}
+2025-03-30 09:19:06,491 - INFO - Получена задача для обработки: {'input_path': '/app/video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4', 'output_path': {'path': './output_video', 'status': 'exists'}, 'preview_path': {'path': './output_preview', 'status': 'exists'}, 'form_data': {'name': 'Кусок ссанины', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Долбиться в свое очко!', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [[37.7749, -122.4194], [48.8566, 2.3522]], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4475', 'language': None}, 'wallet_number': '0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4475', 'user_logo_url': '/user_logo/69304da1-a051-4896-ad43-c29b6fb21597_9cc7f20d-46cc-4375-977b-401228b60669_молекула_preview_rev_1.png'}
+2025-03-30 09:19:06,491 - INFO - Начинаю конвертацию видео /app/video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4 в VP9
+2025-03-30 09:19:06,491 - INFO - Запуск конвертации видео в VP9: /app/video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4 -> ./bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_converted.webm
+2025-03-30 09:19:31,283 - INFO - Конвертация в VP9 завершена: ./bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_converted.webm (Размер: 3.39 MB, Время: 24.79 сек.)
+2025-03-30 09:19:31,284 - INFO - Видео успешно обработано: ./bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_converted.webm (Размер: 3.39 MB)
+2025-03-30 09:19:31,284 - INFO - Путь к конвертированному видео: ./bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_converted.webm
+2025-03-30 09:19:31,284 - INFO - Задача конвертации для /app/video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4 завершена успешно
+2025-03-30 09:19:31,284 - INFO - Начинаю извлечение превью для /app/video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4
+2025-03-30 09:19:31,284 - INFO - Извлечение превью из видео: /app/video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4 -> ./bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_preview.webm (Длительность: 5 сек.)
+2025-03-30 09:19:32,466 - INFO - Открытие сессии с БД...
+2025-03-30 09:19:32,468 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:19:32,474 - INFO - Закрытие сессии с БД.
+2025-03-30 09:19:32,474 - INFO - Данные о избранном и счетчике подписчиков успешно синхронизированы из кеша в базу данных для всех пользователей.
+2025-03-30 09:19:39,588 - INFO - Извлечение превью завершено: ./bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_preview.webm (Размер: 1.27 MB, Время: 8.30 сек.)
+2025-03-30 09:19:39,588 - INFO - Превью успешно извлечено: ./bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_preview.webm (Размер: 1.27 MB)
+2025-03-30 09:19:39,588 - INFO - Путь к извлеченному превью: ./bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_preview.webm
+2025-03-30 09:19:39,588 - INFO - Извлечение превью для /app/video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4 завершено успешно
+2025-03-30 09:19:39,589 - INFO - Начинаю извлечение постера для /app/video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4
+2025-03-30 09:19:39,590 - INFO - Извлечение кадра из видео: ./bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_preview.webm -> user_video_posters/7a1019216f0a46a48ac00c6683b8ee82.jpg (Время: 2 сек.)
+2025-03-30 09:19:39,671 - INFO - Извлечение кадра завершено: user_video_posters/7a1019216f0a46a48ac00c6683b8ee82.jpg (Время: 0.08 сек.)
+2025-03-30 09:19:39,671 - INFO - Кадр успешно извлечён и сохранён: user_video_posters/7a1019216f0a46a48ac00c6683b8ee82.jpg
+2025-03-30 09:19:39,671 - INFO - Извлечение постера для /app/video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4 завершено успешно. Путь: user_video_posters/7a1019216f0a46a48ac00c6683b8ee82.jpg
+2025-03-30 09:19:39,671 - INFO - Начинаю загрузку видео {'path': './output_video', 'status': 'exists'} и превью {'path': './output_preview', 'status': 'exists'} в S3
+2025-03-30 09:19:40,326 - INFO - Соединение с AWS S3 установлено успешно.
+2025-03-30 09:19:40,394 - INFO - Загрузка видео в AWS S3: ./bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_converted.webm -> bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_converted.webm
+2025-03-30 09:19:47,345 - INFO - Видео успешно загружено в AWS S3: bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_converted.webm
+2025-03-30 09:19:47,345 - INFO - Загрузка превью в AWS S3: ./bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_preview.webm -> bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_preview.webm
+2025-03-30 09:19:48,685 - INFO - Превью успешно загружено в AWS S3: bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_preview.webm
+2025-03-30 09:19:48,687 - INFO - Загруженные файлы: Видео - https://stt-market-videos.s3.eu-north-1.amazonaws.com/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_converted.webm, Превью - https://stt-market-videos.s3.eu-north-1.amazonaws.com/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_preview.webm
+2025-03-30 09:19:48,688 - INFO - Загрузка видео {'path': './output_video', 'status': 'exists'} в S3 завершена успешно. URL: https://stt-market-videos.s3.eu-north-1.amazonaws.com/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_converted.webm
+2025-03-30 09:19:48,688 - INFO - Загрузка превью {'path': './output_preview', 'status': 'exists'} в S3 завершена успешно. URL: https://stt-market-videos.s3.eu-north-1.amazonaws.com/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4_preview.webm
+2025-03-30 09:19:48,688 - INFO - Начинаю сохранение профиля в БД для пользователя Кусок ссанины
+2025-03-30 09:19:48,690 - INFO - Открытие сессии с БД...
+2025-03-30 09:19:48,698 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:19:48,890 - INFO - Создан новый профиль с уникальной ссылкой: https://sttore.link/jghd-j4tz-lr4v-m8ct
+2025-03-30 09:19:48,901 - INFO - Хэштеги обновлены для профиля 0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4475
+2025-03-30 09:19:48,902 - INFO - Данные успешно сохранены для кошелька 0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4475
+2025-03-30 09:19:48,903 - INFO - Закрытие сессии с БД.
+2025-03-30 09:19:48,903 - INFO - Профиль с именем Кусок ссанины успешно сохранен в БД
+2025-03-30 09:19:48,903 - INFO - Весь цикл задач для /app/video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4 выполнен успешно!
+2025-03-30 09:19:48,903 - INFO - Данные задачи очищены.
+2025-03-30 09:21:32,458 - INFO - Открытие сессии с БД...
+2025-03-30 09:21:32,461 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:21:32,538 - INFO - Успешно обработано и закэшировано 3 профилей в Redis.
+2025-03-30 09:21:32,539 - INFO - Собрано уникальных профилей по алгоритму: 3
+2025-03-30 09:21:32,539 - INFO - Сформировано страниц: 1
+2025-03-30 09:21:32,539 - INFO - В кэше размещено 1 страниц.
+2025-03-30 09:21:32,539 - INFO - Сформировано и закэшировано 1 страниц из 3 профилей.
+2025-03-30 09:21:32,539 - INFO - Закрытие сессии с БД.
+2025-03-30 09:22:04,888 - INFO - Открытие сессии с БД...
+2025-03-30 09:22:04,892 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:22:04,897 - INFO - Поиск пользователя в базе данных.
+2025-03-30 09:22:04,908 - INFO - Пользователь найден с ID 3
+2025-03-30 09:22:04,919 - INFO - Получение избранного через get_favorites_from_cache.
+2025-03-30 09:22:04,919 - INFO - Попытка получить избранное из кэша Redis для пользователя 3.
+2025-03-30 09:22:04,921 - INFO - Избранное не найдено в кэше для пользователя 3. Загружаем из базы данных.
+2025-03-30 09:22:04,921 - INFO - Открытие сессии с БД...
+2025-03-30 09:22:04,921 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:22:04,979 - INFO - У пользователя 3 нет избранных профилей.
+2025-03-30 09:22:04,979 - INFO - Закрытие сессии с БД.
+2025-03-30 09:22:04,980 - INFO - Избранное получено: []
+2025-03-30 09:22:04,980 - INFO - Генерация токенов для пользователя.
+2025-03-30 09:22:04,982 - INFO - Токены успешно сгенерированы.
+2025-03-30 09:22:04,982 - INFO - Закрытие сессии с БД.
+2025-03-30 09:22:32,457 - INFO - Открытие сессии с БД...
+2025-03-30 09:22:32,462 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:22:32,478 - INFO - Закрытие сессии с БД.
+2025-03-30 09:22:32,481 - INFO - Данные о избранном и счетчике подписчиков успешно синхронизированы из кеша в базу данных для всех пользователей.
+2025-03-30 09:25:08,554 - ERROR - Ошибка при получении сообщения: Connection closed by server.
 Module: __main__, Function: main, Line: 181
-2025-03-19 15:24:12,256 - INFO - Открытие сессии с БД...
-2025-03-19 15:24:12,264 - INFO - Сессия с БД успешно открыта.
-2025-03-19 15:24:12,273 - INFO - Закрытие сессии с БД.
-2025-03-19 15:24:12,274 - INFO - Данные о избранном и счетчике подписчиков успешно синхронизированы из кеша в базу данных для всех пользователей.
-2025-03-19 15:26:12,229 - INFO - Открытие сессии с БД...
-2025-03-19 15:26:12,231 - INFO - Сессия с БД успешно открыта.
-2025-03-19 15:26:12,388 - INFO - Успешно обработано и закэшировано 1 профилей в Redis.
-2025-03-19 15:26:12,388 - INFO - Собрано уникальных профилей по алгоритму: 1
-2025-03-19 15:26:12,388 - INFO - Сформировано страниц: 1
-2025-03-19 15:26:12,389 - INFO - В кэше размещено 1 страниц.
-2025-03-19 15:26:12,389 - INFO - Сформировано и закэшировано 1 страниц из 1 профилей.
-2025-03-19 15:26:12,389 - INFO - Закрытие сессии с БД.
-2025-03-19 15:27:12,227 - INFO - Открытие сессии с БД...
-2025-03-19 15:27:12,232 - INFO - Сессия с БД успешно открыта.
-2025-03-19 15:27:12,252 - INFO - Закрытие сессии с БД.
-2025-03-19 15:27:12,254 - INFO - Данные о избранном и счетчике подписчиков успешно синхронизированы из кеша в базу данных для всех пользователей.
-2025-03-19 15:27:30,222 - INFO - Открытие сессии с БД...
-2025-03-19 15:27:30,223 - INFO - Сессия с БД успешно открыта.
-2025-03-19 15:27:30,230 - INFO - Поиск пользователя в базе данных.
-2025-03-19 15:27:30,256 - INFO - Пользователь найден с ID 2
-2025-03-19 15:27:30,261 - INFO - Получение избранного через get_favorites_from_cache.
-2025-03-19 15:27:30,263 - INFO - Попытка получить избранное из кэша Redis для пользователя 2.
-2025-03-19 15:27:30,275 - INFO - Избранное не найдено в кэше для пользователя 2. Загружаем из базы данных.
-2025-03-19 15:27:30,275 - INFO - Открытие сессии с БД...
-2025-03-19 15:27:30,276 - INFO - Сессия с БД успешно открыта.
-2025-03-19 15:27:30,279 - INFO - У пользователя 2 нет избранных профилей.
-2025-03-19 15:27:30,279 - INFO - Закрытие сессии с БД.
-2025-03-19 15:27:30,284 - INFO - Избранное получено: []
-2025-03-19 15:27:30,284 - INFO - Генерация токенов для пользователя.
-2025-03-19 15:27:30,320 - INFO - Токены успешно сгенерированы.
-2025-03-19 15:27:30,331 - INFO - Закрытие сессии с БД.
-2025-03-19 15:28:19,332 - INFO - Получен запрос на загрузку изображения от пользователя с ID: 2
-2025-03-19 15:28:19,341 - INFO - Изображение сохранено во временной директории: ./image_temp/978fa093-0646-49a4-a751-bbb277e7579e_молекула_preview_rev_1.png (Размер: 0.09 MB)
-2025-03-19 15:28:19,341 - INFO - Изображение успешно загружено: ./image_temp/978fa093-0646-49a4-a751-bbb277e7579e_молекула_preview_rev_1.png
-2025-03-19 15:28:47,801 - INFO - Получен запрос на загрузку видео от пользователя с ID: {current_user.user_id}
-2025-03-19 15:28:47,820 - INFO - видео сохранено во временной директории: ./video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4 (Размер: 1.43 MB)
-2025-03-19 15:28:47,820 - INFO - Видео успешно загружено: ./video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4
-2025-03-19 15:29:49,278 - INFO - Получены данные профиля: {'name': 'Кусок ссанины', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Долбиться в свое очко!', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x29b0B8cfa07fA65f36Ad653F679D36EBC7d4475', 'language': None}
-2025-03-19 15:29:49,279 - INFO - Получены данные о изображении: {'image_path': './image_temp/978fa093-0646-49a4-a751-bbb277e7579e_молекула_preview_rev_1.png'}
-2025-03-19 15:29:49,279 - INFO - Получены данные о видео: {'video_path': './video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4'}
-2025-03-19 15:29:49,279 - INFO - Путь к изображению: ./image_temp/978fa093-0646-49a4-a751-bbb277e7579e_молекула_preview_rev_1.png
-2025-03-19 15:29:49,279 - INFO - Путь к видео: ./video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4
-2025-03-19 15:29:49,279 - INFO - Абсолютный путь к видео: /app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4
-2025-03-19 15:29:49,280 - INFO - Абсолютный путь к изображению: /app/image_temp/978fa093-0646-49a4-a751-bbb277e7579e_молекула_preview_rev_1.png
-2025-03-19 15:29:49,285 - INFO - Изображение перемещено в директорию user_logo: ./user_logo/4b3f0bda-d2bc-4f5d-b401-64aa246c5441_978fa093-0646-49a4-a751-bbb277e7579e_молекула_preview_rev_1.png (Размер: 0.09 MB)
-2025-03-19 15:29:49,285 - INFO - Путь к файлу для сохранения в БД: ./user_logo/4b3f0bda-d2bc-4f5d-b401-64aa246c5441_978fa093-0646-49a4-a751-bbb277e7579e_молекула_preview_rev_1.png
-2025-03-19 15:29:49,285 - INFO - Изображение успешно перемещено в постоянную папку: ./user_logo/4b3f0bda-d2bc-4f5d-b401-64aa246c5441_978fa093-0646-49a4-a751-bbb277e7579e_молекула_preview_rev_1.png
-2025-03-19 15:29:49,285 - INFO - Обработка данных профиля...
-2025-03-19 15:29:49,285 - INFO - Соединение с Redis для публикации задачи в канал установлено.
-2025-03-19 15:29:49,286 - INFO - Публикуемые данные в Redis: {input_path: /app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4, output_path: {'path': './output_video', 'status': 'exists'}, preview_path: {'path': './output_preview', 'status': 'exists'}, user_logo_url: /user_logo/4b3f0bda-d2bc-4f5d-b401-64aa246c5441_978fa093-0646-49a4-a751-bbb277e7579e_молекула_preview_rev_1.png, wallet_number: 0x29b0B8cfa07fA65f36Ad653F679D36EBC7d4475, form_data: {'name': 'Кусок ссанины', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Долбиться в свое очко!', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x29b0B8cfa07fA65f36Ad653F679D36EBC7d4475', 'language': None}}
-2025-03-19 15:29:49,293 - INFO - Задача успешно отправлена в канал video_tasks: {'input_path': '/app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4', 'output_path': {'path': './output_video', 'status': 'exists'}, 'preview_path': {'path': './output_preview', 'status': 'exists'}, 'form_data': {'name': 'Кусок ссанины', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Долбиться в свое очко!', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [(37.7749, -122.4194), (48.8566, 2.3522)], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x29b0B8cfa07fA65f36Ad653F679D36EBC7d4475', 'language': None}, 'wallet_number': '0x29b0B8cfa07fA65f36Ad653F679D36EBC7d4475', 'user_logo_url': '/user_logo/4b3f0bda-d2bc-4f5d-b401-64aa246c5441_978fa093-0646-49a4-a751-bbb277e7579e_молекула_preview_rev_1.png'}
-2025-03-19 15:29:49,293 - INFO - Задача успешно отправлена в Redis.
-2025-03-19 15:29:49,301 - INFO - Получено сообщение от Redis: {'type': 'message', 'pattern': None, 'channel': 'video_tasks', 'data': '{"input_path": "/app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4", "output_path": {"path": "./output_video", "status": "exists"}, "preview_path": {"path": "./output_preview", "status": "exists"}, "form_data": {"name": "\\u041a\\u0443\\u0441\\u043e\\u043a \\u0441\\u0441\\u0430\\u043d\\u0438\\u043d\\u044b", "website_or_social": "https://twitter.com/johndoe", "activity_hobbies": "\\u0414\\u043e\\u043b\\u0431\\u0438\\u0442\\u044c\\u0441\\u044f \\u0432 \\u0441\\u0432\\u043e\\u0435 \\u043e\\u0447\\u043a\\u043e!", "hashtags": ["#gaming", "#travel", "#photography"], "adress": ["123 Example Street, Example City", "456 Another Street, Another City"], "city": "Example City", "coordinates": [[37.7749, -122.4194], [48.8566, 2.3522]], "is_in_mlm": 1, "is_incognito": false, "wallet_number": "0x29b0B8cfa07fA65f36Ad653F679D36EBC7d4475", "language": null}, "wallet_number": "0x29b0B8cfa07fA65f36Ad653F679D36EBC7d4475", "user_logo_url": "/user_logo/4b3f0bda-d2bc-4f5d-b401-64aa246c5441_978fa093-0646-49a4-a751-bbb277e7579e_\\u043c\\u043e\\u043b\\u0435\\u043a\\u0443\\u043b\\u0430_preview_rev_1.png"}'}
-2025-03-19 15:29:49,306 - INFO - Получена задача для обработки: {'input_path': '/app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4', 'output_path': {'path': './output_video', 'status': 'exists'}, 'preview_path': {'path': './output_preview', 'status': 'exists'}, 'form_data': {'name': 'Кусок ссанины', 'website_or_social': 'https://twitter.com/johndoe', 'activity_hobbies': 'Долбиться в свое очко!', 'hashtags': ['#gaming', '#travel', '#photography'], 'adress': ['123 Example Street, Example City', '456 Another Street, Another City'], 'city': 'Example City', 'coordinates': [[37.7749, -122.4194], [48.8566, 2.3522]], 'is_in_mlm': 1, 'is_incognito': False, 'wallet_number': '0x29b0B8cfa07fA65f36Ad653F679D36EBC7d4475', 'language': None}, 'wallet_number': '0x29b0B8cfa07fA65f36Ad653F679D36EBC7d4475', 'user_logo_url': '/user_logo/4b3f0bda-d2bc-4f5d-b401-64aa246c5441_978fa093-0646-49a4-a751-bbb277e7579e_молекула_preview_rev_1.png'}
-2025-03-19 15:29:49,307 - INFO - Начинаю конвертацию видео /app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4 в VP9
-2025-03-19 15:29:49,308 - INFO - Запуск конвертации видео в VP9: /app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4 -> ./27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_converted.webm
-2025-03-19 15:29:55,402 - INFO - Конвертация в VP9 завершена: ./27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_converted.webm (Размер: 0.61 MB, Время: 6.09 сек.)
-2025-03-19 15:29:55,403 - INFO - Видео успешно обработано: ./27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_converted.webm (Размер: 0.61 MB)
-2025-03-19 15:29:55,403 - INFO - Путь к конвертированному видео: ./27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_converted.webm
-2025-03-19 15:29:55,403 - INFO - Задача конвертации для /app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4 завершена успешно
-2025-03-19 15:29:55,403 - INFO - Начинаю извлечение превью для /app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4
-2025-03-19 15:29:55,403 - INFO - Извлечение превью из видео: /app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4 -> ./27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_preview.webm (Длительность: 5 сек.)
-2025-03-19 15:30:02,755 - INFO - Извлечение превью завершено: ./27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_preview.webm (Размер: 0.52 MB, Время: 7.35 сек.)
-2025-03-19 15:30:02,757 - INFO - Превью успешно извлечено: ./27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_preview.webm (Размер: 0.52 MB)
-2025-03-19 15:30:02,757 - INFO - Путь к извлеченному превью: ./27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_preview.webm
-2025-03-19 15:30:02,757 - INFO - Извлечение превью для /app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4 завершено успешно
-2025-03-19 15:30:02,757 - INFO - Начинаю извлечение постера для /app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4
-2025-03-19 15:30:02,758 - INFO - Извлечение кадра из видео: ./27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_preview.webm -> user_video_posters/b4d45240d51a449482b082aa4a3db179.jpg (Время: 2 сек.)
-2025-03-19 15:30:02,857 - INFO - Извлечение кадра завершено: user_video_posters/b4d45240d51a449482b082aa4a3db179.jpg (Время: 0.10 сек.)
-2025-03-19 15:30:02,858 - INFO - Кадр успешно извлечён и сохранён: user_video_posters/b4d45240d51a449482b082aa4a3db179.jpg
-2025-03-19 15:30:02,858 - INFO - Извлечение постера для /app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4 завершено успешно. Путь: user_video_posters/b4d45240d51a449482b082aa4a3db179.jpg
-2025-03-19 15:30:02,858 - INFO - Начинаю загрузку видео {'path': './output_video', 'status': 'exists'} и превью {'path': './output_preview', 'status': 'exists'} в S3
-2025-03-19 15:30:03,394 - INFO - Соединение с AWS S3 установлено успешно.
-2025-03-19 15:30:03,467 - INFO - Загрузка видео в AWS S3: ./27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_converted.webm -> 27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_converted.webm
-2025-03-19 15:30:06,151 - INFO - Видео успешно загружено в AWS S3: 27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_converted.webm
-2025-03-19 15:30:06,152 - INFO - Загрузка превью в AWS S3: ./27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_preview.webm -> 27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_preview.webm
-2025-03-19 15:30:07,893 - INFO - Превью успешно загружено в AWS S3: 27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_preview.webm
-2025-03-19 15:30:07,894 - INFO - Загруженные файлы: Видео - https://stt-market-videos.s3.eu-north-1.amazonaws.com/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_converted.webm, Превью - https://stt-market-videos.s3.eu-north-1.amazonaws.com/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_preview.webm
-2025-03-19 15:30:07,895 - INFO - Загрузка видео {'path': './output_video', 'status': 'exists'} в S3 завершена успешно. URL: https://stt-market-videos.s3.eu-north-1.amazonaws.com/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_converted.webm
-2025-03-19 15:30:07,895 - INFO - Загрузка превью {'path': './output_preview', 'status': 'exists'} в S3 завершена успешно. URL: https://stt-market-videos.s3.eu-north-1.amazonaws.com/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4_preview.webm
-2025-03-19 15:30:07,896 - INFO - Начинаю сохранение профиля в БД для пользователя Кусок ссанины
-2025-03-19 15:30:07,896 - INFO - Открытие сессии с БД...
-2025-03-19 15:30:07,899 - INFO - Сессия с БД успешно открыта.
-2025-03-19 15:30:08,026 - INFO - Хэштеги добавлены/обновлены для профиля пользователя 0x29b0B8cfa07fA65f36Ad653F679D36EBC7d4475
-2025-03-19 15:30:08,031 - INFO - Видео, пользователь, логотип и хэштеги успешно сохранены для кошелька 0x29b0B8cfa07fA65f36Ad653F679D36EBC7d4475
-2025-03-19 15:30:08,031 - INFO - Закрытие сессии с БД.
-2025-03-19 15:30:08,032 - INFO - Профиль с именем Кусок ссанины успешно сохранен в БД
-2025-03-19 15:30:08,032 - INFO - Весь цикл задач для /app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4 выполнен успешно!
-2025-03-19 15:30:08,032 - INFO - Данные задачи очищены.
-2025-03-19 15:30:12,223 - INFO - Открытие сессии с БД...
-2025-03-19 15:30:12,228 - INFO - Сессия с БД успешно открыта.
-2025-03-19 15:30:12,235 - INFO - Закрытие сессии с БД.
-2025-03-19 15:30:12,237 - INFO - Данные о избранном и счетчике подписчиков успешно синхронизированы из кеша в базу данных для всех пользователей.
-2025-03-19 15:31:12,221 - INFO - Открытие сессии с БД...
-2025-03-19 15:31:12,224 - INFO - Сессия с БД успешно открыта.
-2025-03-19 15:31:12,289 - INFO - Успешно обработано и закэшировано 2 профилей в Redis.
-2025-03-19 15:31:12,290 - INFO - Собрано уникальных профилей по алгоритму: 2
-2025-03-19 15:31:12,290 - INFO - Сформировано страниц: 1
-2025-03-19 15:31:12,291 - INFO - В кэше размещено 1 страниц.
-2025-03-19 15:31:12,291 - INFO - Сформировано и закэшировано 1 страниц из 2 профилей.
-2025-03-19 15:31:12,291 - INFO - Закрытие сессии с БД.
-2025-03-19 15:32:16,716 - INFO - Открытие сессии с БД...
-2025-03-19 15:32:16,721 - INFO - Сессия с БД успешно открыта.
-2025-03-19 15:32:16,730 - INFO - Поиск пользователя в базе данных.
-2025-03-19 15:32:16,746 - INFO - Пользователь найден с ID 2
-2025-03-19 15:32:16,797 - INFO - Получение избранного через get_favorites_from_cache.
-2025-03-19 15:32:16,797 - INFO - Попытка получить избранное из кэша Redis для пользователя 2.
-2025-03-19 15:32:16,800 - INFO - Избранное не найдено в кэше для пользователя 2. Загружаем из базы данных.
-2025-03-19 15:32:16,800 - INFO - Открытие сессии с БД...
-2025-03-19 15:32:16,801 - INFO - Сессия с БД успешно открыта.
-2025-03-19 15:32:16,808 - INFO - У пользователя 2 нет избранных профилей.
-2025-03-19 15:32:16,808 - INFO - Закрытие сессии с БД.
-2025-03-19 15:32:16,818 - INFO - Избранное получено: []
-2025-03-19 15:32:16,818 - INFO - Генерация токенов для пользователя.
-2025-03-19 15:32:16,824 - INFO - Токены успешно сгенерированы.
-2025-03-19 15:32:16,829 - INFO - Закрытие сессии с БД.
-2025-03-19 15:32:31,802 - ERROR - Ошибка при получении сообщения: Connection closed by server.
+2025-03-30 09:26:37,531 - INFO - Запуск приложения и инициализация базы данных...
+2025-03-30 09:26:37,531 - DEBUG - Начало инициализации базы данных...
+2025-03-30 09:26:37,693 - INFO - База данных успешно инициализирована.
+2025-03-30 09:26:37,693 - INFO - Приложение успешно запущено. Соединение с базой данных установлено.
+2025-03-30 09:26:37,693 - INFO - Директория уже существует: ./video_temp
+2025-03-30 09:26:37,693 - INFO - Директория уже существует: ./image_temp
+2025-03-30 09:26:37,693 - INFO - Директория уже существует: ./output_video
+2025-03-30 09:26:37,693 - INFO - Директория уже существует: ./output_preview
+2025-03-30 09:26:37,693 - INFO - Директория уже существует: ./user_logo
+2025-03-30 09:26:37,694 - INFO - Директория уже существует: ./user_video_posters
+2025-03-30 09:26:37,698 - INFO - Задача fetch_and_cache_profiles добавлена в расписание (каждые 8 минут).
+2025-03-30 09:26:37,698 - INFO - Задача sync_data_to_db добавлена в расписание (каждые 8 минут).
+2025-03-30 09:26:37,698 - INFO - Задача очистки временных файлов добавлена в расписание (каждый день в 00:00).
+2025-03-30 09:26:37,698 - INFO - Планировщик задач успешно запущен.
+2025-03-30 09:26:37,771 - INFO - Запуск подписки на канал Redis для получения задач
+2025-03-30 09:26:37,781 - INFO - Redis доступен.
+2025-03-30 09:26:37,781 - INFO - Проверка соединения с AWS S3...
+2025-03-30 09:26:38,537 - INFO - Соединение с AWS S3 установлено успешно.
+2025-03-30 09:26:38,538 - INFO - Соединение с AWS S3 установлено успешно.
+2025-03-30 09:26:38,538 - INFO - Подключаемся к Redis...
+2025-03-30 09:26:38,539 - INFO - Подписались на канал video_tasks
+2025-03-30 09:29:37,741 - INFO - Открытие сессии с БД...
+2025-03-30 09:29:37,744 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:29:37,754 - INFO - Закрытие сессии с БД.
+2025-03-30 09:29:37,754 - INFO - Данные о избранном и счетчике подписчиков успешно синхронизированы из кеша в базу данных для всех пользователей.
+2025-03-30 09:31:37,706 - INFO - Открытие сессии с БД...
+2025-03-30 09:31:37,710 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:31:37,833 - INFO - Успешно обработано и закэшировано 3 профилей в Redis.
+2025-03-30 09:31:37,833 - INFO - Собрано уникальных профилей по алгоритму: 3
+2025-03-30 09:31:37,833 - INFO - Сформировано страниц: 1
+2025-03-30 09:31:37,834 - INFO - В кэше размещено 1 страниц.
+2025-03-30 09:31:37,834 - INFO - Сформировано и закэшировано 1 страниц из 3 профилей.
+2025-03-30 09:31:37,834 - INFO - Закрытие сессии с БД.
+2025-03-30 09:32:37,704 - INFO - Открытие сессии с БД...
+2025-03-30 09:32:37,709 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:32:37,717 - INFO - Закрытие сессии с БД.
+2025-03-30 09:32:37,718 - INFO - Данные о избранном и счетчике подписчиков успешно синхронизированы из кеша в базу данных для всех пользователей.
+2025-03-30 09:33:49,455 - INFO - Открытие сессии с БД...
+2025-03-30 09:33:49,457 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:33:49,485 - INFO - Поиск пользователя в базе данных.
+2025-03-30 09:33:49,502 - INFO - Пользователь найден с ID 3
+2025-03-30 09:33:49,531 - INFO - Получение избранного через get_favorites_from_cache.
+2025-03-30 09:33:49,531 - INFO - Попытка получить избранное из кэша Redis для пользователя 3.
+2025-03-30 09:33:49,534 - INFO - Избранное не найдено в кэше для пользователя 3. Загружаем из базы данных.
+2025-03-30 09:33:49,534 - INFO - Открытие сессии с БД...
+2025-03-30 09:33:49,534 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:33:49,598 - INFO - У пользователя 3 нет избранных профилей.
+2025-03-30 09:33:49,598 - INFO - Закрытие сессии с БД.
+2025-03-30 09:33:49,608 - INFO - Избранное получено: []
+2025-03-30 09:33:49,608 - INFO - Генерация токенов для пользователя.
+2025-03-30 09:33:49,621 - INFO - Токены успешно сгенерированы.
+2025-03-30 09:33:49,622 - INFO - Закрытие сессии с БД.
+2025-03-30 09:34:24,742 - INFO - Открытие сессии с БД...
+2025-03-30 09:34:24,744 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:34:24,791 - INFO - Попытка получить избранное из кэша Redis для пользователя 3.
+2025-03-30 09:34:24,792 - INFO - Избранное не найдено в кэше для пользователя 3. Загружаем из базы данных.
+2025-03-30 09:34:24,792 - INFO - Открытие сессии с БД...
+2025-03-30 09:34:24,792 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:34:24,795 - INFO - У пользователя 3 нет избранных профилей.
+2025-03-30 09:34:24,795 - INFO - Закрытие сессии с БД.
+2025-03-30 09:34:24,795 - INFO - Получено избранное для пользователя 3
+2025-03-30 09:34:24,796 - INFO - Закрытие сессии с БД.
+2025-03-30 09:34:44,546 - INFO - Открытие сессии с БД...
+2025-03-30 09:34:44,548 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:34:44,645 - INFO - Попытка получить избранное из кэша Redis для пользователя 3.
+2025-03-30 09:34:44,646 - INFO - Избранное не найдено в кэше для пользователя 3. Загружаем из базы данных.
+2025-03-30 09:34:44,646 - INFO - Открытие сессии с БД...
+2025-03-30 09:34:44,646 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:34:44,648 - INFO - У пользователя 3 нет избранных профилей.
+2025-03-30 09:34:44,648 - INFO - Закрытие сессии с БД.
+2025-03-30 09:34:44,649 - INFO - Получено избранное: []
+2025-03-30 09:34:44,649 - INFO - Закрытие сессии с БД.
+2025-03-30 09:35:04,355 - INFO - Открытие сессии с БД...
+2025-03-30 09:35:04,357 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:35:04,379 - INFO - Попытка получить избранное из кэша Redis для пользователя 3.
+2025-03-30 09:35:04,381 - INFO - Избранное не найдено в кэше для пользователя 3. Загружаем из базы данных.
+2025-03-30 09:35:04,381 - INFO - Открытие сессии с БД...
+2025-03-30 09:35:04,381 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:35:04,383 - INFO - У пользователя 3 нет избранных профилей.
+2025-03-30 09:35:04,383 - INFO - Закрытие сессии с БД.
+2025-03-30 09:35:04,384 - INFO - Получено избранное для пользователя 3
+2025-03-30 09:35:04,384 - INFO - Закрытие сессии с БД.
+2025-03-30 09:35:37,707 - INFO - Открытие сессии с БД...
+2025-03-30 09:35:37,710 - INFO - Сессия с БД успешно открыта.
+2025-03-30 09:35:37,717 - INFO - Закрытие сессии с БД.
+2025-03-30 09:35:37,718 - INFO - Данные о избранном и счетчике подписчиков успешно синхронизированы из кеша в базу данных для всех пользователей.
+2025-03-30 09:35:47,606 - ERROR - Ошибка при получении сообщения: Connection closed by server.
 Module: __main__, Function: main, Line: 181

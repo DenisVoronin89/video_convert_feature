@@ -42,7 +42,9 @@ from views import (
     fetch_nearby_profiles,
     grant_admin_rights,
     get_profiles_for_moderation,
-    moderate_profile
+    moderate_profile,
+    regenerate_user_link,
+    get_profile_by_link
 )
 from schemas import FormData, TokenResponse, UserProfileResponse, UserResponse, is_valid_image, is_valid_video, serialize_form_data, validate_and_process_form
 from models import User, UserProfiles, Favorite, Hashtag, ProfileHashtag
@@ -272,6 +274,7 @@ async def login(
                     "website_or_social": profile.website_or_social,  # Добавляем недостающие поля
                     "is_admin": profile.is_admin,
                     "language": profile.language,
+                    "user_link": profile.user_link
                 }
 
             # Получаем избранное через get_favorites_from_cache
@@ -1018,6 +1021,38 @@ async def moderate_profile_endpoint(
     except Exception as e:
         logger.error(f"Ошибка в ендпоинте /moderate-profile: {e}")
         raise HTTPException(status_code=500, detail="Ошибка сервера, да.")
+
+
+# Эндпоинт для генерации новой ссылки профиля
+@app.post("/api/regenerate-link")
+async def regenerate_profile_link_endpoint(
+        profile_id: int,
+        token_data: TokenData = Depends(check_user_token)
+):
+    """
+    Генерирует новую уникальную ссылку для профиля
+
+    :param profile_id: ID профиля для обновления
+    :return: Полные данные профиля с новой ссылкой
+    """
+    return await regenerate_user_link(profile_id)
+
+
+# Эндпоинт для получения профиля по ссылке
+@app.get("/api/get-profile-by-link")
+async def get_profile_by_link_endpoint(
+        user_link: str,
+        token_data: TokenData = Depends(check_user_token)  # Опциональная авторизация
+):
+    """
+    Получает данные профиля по уникальной ссылке
+
+    :param user_link: Уникальная ссылка профиля (формат: xxxx-xxxx-xxxx-xxxx)
+    :return: Данные профиля в стандартном формате
+    """
+    return await get_profile_by_link(user_link)
+
+
 
 
 # ЭНДПОИНТ ДЛЯ НАПОЛНЕНИЯ БД, ПОТОМ УДАЛИТЬ ЕГО И МОДУЛЬ ФЕЙК ПРОФИЛЕЙ!!!!!!!!!!!!!

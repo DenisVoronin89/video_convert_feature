@@ -45,6 +45,7 @@ class UserProfiles(Base):
     coordinates = Column(Geometry('MULTIPOINT', srid=4326), nullable=True)
     followers_count = Column(Integer, default=0, nullable=True)
     language = Column(String(55), nullable=True)
+    user_link = Column(String(255), nullable=True, unique=True)
 
     hashtags = relationship('Hashtag', secondary='profile_hashtags', back_populates='profiles')
     profile_hashtags = relationship('ProfileHashtag', back_populates='profile', cascade="all, delete-orphan")
@@ -59,7 +60,6 @@ class UserProfiles(Base):
         Index('ix_user_profiles_video_url_unique', video_url, unique=True, postgresql_where=video_url.isnot(None)),
         Index('ix_user_profiles_preview_url_unique', preview_url, unique=True, postgresql_where=preview_url.isnot(None)),
     )
-
 
 
 # Таблица избранного
