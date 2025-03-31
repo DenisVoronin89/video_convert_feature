@@ -129,7 +129,7 @@ MIME-тип или расширение, но на самом деле явля�
     "is_in_mlm": 1,
     "is_incognito": false,
     "name": "Кусок ссанины",
-    "wallet_number": "0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4475",
+    "wallet_number": "0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4545",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
@@ -170,11 +170,11 @@ MIME-тип или расширение, но на самом деле явля�
     "is_in_mlm": 1,
     "is_incognito": false,
     "name": "Ебись все в рот!!!",
-    "wallet_number": "0x27b0B8cfa07fA72f36Ad953F679D36EBC7d4355",
+    "wallet_number": "0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4545",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/f8ac0ec9-9c29-4db3-b742-50093f6c0f53_orig_cat.webp"
+    "image_path": "./image_temp/37d0916f-1b33-4869-8c2e-d8228d25c52b_молекула_preview_rev_1.png"
   }
 }
 

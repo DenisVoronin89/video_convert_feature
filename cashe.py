@@ -771,8 +771,9 @@ async def save_profile_to_db_without_video(
                     logger.info(f"Создан профиль для пользователя {user.id} с user_link: {user_link}")
 
                 # Работа с хэштегами (безопасная, с проверкой существующих связей)
-                if form_data.get("hashtags"):
-                    hashtags_list = [tag.strip().lower().lstrip("#") for tag in form_data["hashtags"] if tag.strip()]
+                if "hashtags" in form_data_dict:  # Исправлено: работаем с form_data_dict вместо form_data
+                    hashtags_input = form_data_dict["hashtags"]
+                    hashtags_list = [tag.strip().lower().lstrip("#") for tag in hashtags_input if tag.strip()]
 
                     if hashtags_list:
                         # 1. Получаем существующие хэштеги
