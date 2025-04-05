@@ -133,10 +133,10 @@ MIME-тип или расширение, но на самом деле явля�
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/e059b312-d707-4d60-a3ec-29568afe292b_молекула_preview_rev_1.png"
+    "image_path": "/user_logo/6be08dca-5609-4ca2-b608-a556bf4a2828_e059b312-d707-4d60-a3ec-29568afe292b_молекула_preview_rev_1.png"
   },
   "video_data": {
-    "video_path": "./video_temp/b43fa53f-6abe-46e3-ae72-ecd3beb1313b_99862-video-720.mp4"
+    "video_path": "./video_temp/0fcd97b3-155a-48e2-b48a-32c9804b95f0_100687-video-720.mp4"
   }
 }
 

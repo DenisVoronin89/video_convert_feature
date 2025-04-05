@@ -11,6 +11,7 @@ from prettyconf import config
 import os
 from dotenv import load_dotenv
 
+from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,41 +48,50 @@ AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 
 
-async def convert_to_vp9(input_path, output_path, logger):
-    """Конвертация в VP9 с сохранением качества оригинала"""
+async def convert_to_h264(input_path, output_path, logger):
+    """Конвертация в H.264 с оптимальным балансом качества/размера"""
     start_time = time.time()
-
-    # Создаем структуру папок
     filename = os.path.splitext(os.path.basename(input_path))[0]
     video_folder = os.path.join(output_path, filename)
     os.makedirs(video_folder, exist_ok=True)
-    output_file = os.path.join(video_folder, f"{filename}.webm")
+    output_file = os.path.join(video_folder, f"{filename}.mp4")
 
     try:
-        # Получаем исходный размер файла
+        # Проверка исходного файла
         input_size = os.path.getsize(input_path) / (1024 * 1024)  # в MB
-
         logger.info(f"Начало конвертации: {input_path} (размер: {input_size:.2f} MB)")
 
-        # Получаем метаданные исходного файла
+        # Получаем метаданные для адаптивного сжатия
         probe = ffmpeg.probe(input_path)
         video_stream = next((s for s in probe['streams'] if s['codec_type'] == 'video'), None)
+        width = int(video_stream['width']) if video_stream else 1280
 
-        # Параметры конвертации
+        # Адаптивные параметры сжатия
+        crf = 22 if width >= 1280 else 24  # Более агрессивное сжатие для HD+
+        audio_bitrate = '128k' if width >= 1280 else '96k'
+
+        # Оптимизированные параметры
         args = {
-            'vcodec': 'libvpx-vp9',
-            'crf': 23,
-            'b:v': '0',
-            'deadline': 'good',
-            'cpu-used': 2,
-            'row-mt': '1',
-            'auto-alt-ref': '1',
-            'acodec': 'libopus',
-            'b:a': '128k' if video_stream and video_stream.get('width', 0) >= 1280 else '96k',
-            'loglevel': 'quiet'  # Отключаем вывод FFmpeg в консоль
+            'vcodec': 'libx264',
+            'preset': 'medium',  # Оптимальный баланс скорости/качества
+            'crf': crf,  # 22-24 - хороший баланс
+            'pix_fmt': 'yuv420p',
+            'movflags': '+faststart',
+            'acodec': 'aac',
+            'b:a': audio_bitrate,
+            'x264-params': 'ref=5:deblock=-1,-1:me=hex:subme=7:merange=16',
+            'threads': '0',  # Автовыбор количества потоков
+            'loglevel': 'error'
         }
 
-        # Запускаем конвертацию
+        # Дополнительная оптимизация для маленьких файлов
+        if input_size < 10:  # Если исходник меньше 10MB
+            args.update({
+                'crf': 24,  # Немного больше сжатия
+                'preset': 'fast'  # Ускоряем конвертацию
+            })
+
+        # Запуск конвертации
         (
             ffmpeg
             .input(input_path)
@@ -90,15 +100,16 @@ async def convert_to_vp9(input_path, output_path, logger):
             .run()
         )
 
-        # Получаем размер выходного файла
-        output_size = os.path.getsize(output_file) / (1024 * 1024)  # в MB
+        # Проверка результата
+        output_size = os.path.getsize(output_file) / (1024 * 1024)
         duration = time.time() - start_time
 
+        compression_ratio = input_size / output_size
         logger.info(
             f"Конвертация завершена за {duration:.2f} сек | "
-            f"Исходный размер: {input_size:.2f} MB | "
-            f"Выходной размер: {output_size:.2f} MB | "
-            f"Коэффициент сжатия: {input_size/output_size:.2f}x"
+            f"Размер: {output_size:.2f} MB | "
+            f"Коэффициент сжатия: {compression_ratio:.2f}x | "
+            f"Параметры: CRF={crf}, preset={args['preset']}"
         )
 
         return {
@@ -118,48 +129,64 @@ async def convert_to_vp9(input_path, output_path, logger):
 
 
 async def create_hls_playlist(conversion_result: dict, logger):
+    """Генерация HLS с согласованными именами файлов"""
     input_video_path = conversion_result["converted_path"]
     video_folder = conversion_result["video_folder"]
     hls_dir = os.path.join(video_folder, "hls")
     os.makedirs(hls_dir, exist_ok=True)
 
     try:
-        original_name = os.path.splitext(os.path.basename(input_video_path))[0]
-        master_playlist = f"{original_name}.m3u8"
-        segment_pattern = f"{original_name}_%03d.ts"
+        # Базовое имя (без расширения)
+        base_name = os.path.splitext(os.path.basename(input_video_path))[0]
 
-        # Оптимальные параметры (сегменты по 5 секунд)
+        # Именование всех элементов по шаблону
+        master_playlist = f"{base_name}.m3u8"
+        segment_pattern = f"{base_name}_%03d.ts"
+        playlist_path = os.path.join(hls_dir, master_playlist)
+
+        # Параметры генерации HLS
         (
             ffmpeg
             .input(input_video_path)
             .output(
-                os.path.join(hls_dir, master_playlist),
-                format="hls",
-                hls_playlist_type="vod",
-                hls_time=5,  # 5 секунд — лучший баланс
-                hls_flags="independent_segments+delete_segments",
+                playlist_path,
+                format='hls',
+                hls_time=5,
+                hls_list_size=0,
                 hls_segment_filename=os.path.join(hls_dir, segment_pattern),
-                c="copy",
-                vcodec="libvpx-vp9",
-                acodec="copy",
+                vcodec='copy',
+                acodec='copy',
                 start_number=0,
-                loglevel="error"  # Только ошибки
+                hls_flags='independent_segments',
+                loglevel='warning'
             )
             .overwrite_output()
             .run()
         )
 
-        logger.info("HLS создан: сегменты по 5 сек (оптимальный баланс)")
+        # Проверка результатов
+        if not os.path.exists(playlist_path):
+            raise RuntimeError("HLS плейлист не был создан")
+
+        # Проверка хотя бы одного сегмента
+        first_segment = os.path.join(hls_dir, f"{base_name}_000.ts")
+        if not os.path.exists(first_segment):
+            raise RuntimeError("Не созданы TS сегменты")
+
+        logger.info(f"HLS успешно сгенерирован: {playlist_path}")
         return {
             "hls_dir": hls_dir,
-            "master_playlist": os.path.join(hls_dir, master_playlist),
-            "segment_pattern": segment_pattern.replace('%03d', '*')
+            "master_playlist": playlist_path,
+            "segment_pattern": f"{base_name}_*.ts"
         }
 
     except ffmpeg.Error as e:
         error_msg = e.stderr.decode('utf-8', errors='replace') if e.stderr else str(e)
         logger.error(f"FFmpeg error: {error_msg}")
-        raise RuntimeError(f"HLS generation failed: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"HLS generation failed: {error_msg}")
+    except Exception as e:
+        logger.error(f"HLS generation error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"HLS processing error: {str(e)}")
 
 
 # Извлечение картинки из видео (для отображения постера на фронте)

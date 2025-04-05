@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from database import get_db_session_for_worker
 from redis.asyncio import Redis
 from video_handle.video_handler_worker import (
-    convert_to_vp9,
+    convert_to_h264,
     upload_to_s3,
     save_profile_to_db,
     check_s3_connection,
@@ -43,7 +43,7 @@ async def handle_task(task_data):
 
         # 1. Конвертация видео
         logger.info(f"Конвертация видео: {input_video}")
-        conversion_result = await convert_to_vp9(
+        conversion_result = await convert_to_h264(
             input_path=input_video,
             output_path=output_path,
             logger=logger
