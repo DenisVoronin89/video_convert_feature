@@ -203,8 +203,8 @@ async def clean_old_logs(log_file: str, max_age_minutes: int = 10):
         logger.error(f"Ошибка при очистке логов: {e}", exc_info=True)
 
 
-
-async def generate_unique_link(length=12, prefix="https://sttore.link/"):
+# Фильтруем генерации случайной ссылки для юзера
+async def generate_unique_link():
     """Генерация случайной уникальной ссылки в формате xxxx-xxxx-xxxx-xxxx"""
     alphabet = string.ascii_lowercase + string.digits
     while True:
@@ -213,10 +213,12 @@ async def generate_unique_link(length=12, prefix="https://sttore.link/"):
         part2 = ''.join(secrets.choice(alphabet) for _ in range(4))
         part3 = ''.join(secrets.choice(alphabet) for _ in range(4))
         part4 = ''.join(secrets.choice(alphabet) for _ in range(4))
-        link = f"{prefix}{part1}-{part2}-{part3}-{part4}"
+        link = f"{part1}-{part2}-{part3}-{part4}"
         return link  # Уникальность проверим на уровне БД через unique=True
 
 
+# Перемещение изображения из временной директории в директорию user_logo и возврат пути к файлу.
+# Это костыль, функция во вьюс еще лежит надо ее везде отсюда импортить, вьюс к циклическому импорту при импорте в кэш модуль приводит
 async def move_image_to_user_logo(image_path: str, created_dirs: dict) -> str:
     """
     Перемещение изображения из временной директории в директорию user_logo и возврат пути к файлу.

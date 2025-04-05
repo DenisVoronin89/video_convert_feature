@@ -129,14 +129,14 @@ MIME-тип или расширение, но на самом деле явля�
     "is_in_mlm": 1,
     "is_incognito": false,
     "name": "Кусок ссанины",
-    "wallet_number": "0x39b0B8cfa77fA65f36Ad653F649D36EBC7d4545",
+    "wallet_number": "0x39b0B8cfa77fA65f36Ad186F649D36EBC7d4545",
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/9cc7f20d-46cc-4375-977b-401228b60669_молекула_preview_rev_1.png"
+    "image_path": "./image_temp/fb4c407a-c1ec-4baf-b1a9-46f002024277_молекула_preview_rev_1.png"
   },
   "video_data": {
-    "video_path": "./video_temp/bb71439d-fcd1-44cc-a958-33ed14944960_100236-video-720.mp4"
+    "video_path": "./video_temp/0dfcc9f9-2909-4757-9401-8e65ac6bc8e5_100235-video-720.mp4"
   }
 }
 
@@ -174,7 +174,7 @@ MIME-тип или расширение, но на самом деле явля�
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "./image_temp/37d0916f-1b33-4869-8c2e-d8228d25c52b_молекула_preview_rev_1.png"
+    "image_path": "./image_temp/03e3387a-1c10-4b01-81da-0b3ee9853c09_молекула_preview_rev_1.png"
   }
 }
 
@@ -208,3 +208,4 @@ find . -type f -name "*.py" -not -path "./venv/*" -not -path "./.venv/*" -not -p
 2025-03-19 15:30:02,757 - INFO - Начинаю извлечение постера для /app/video_temp/27da1518-70a2-47dd-9061-090beccf0fa9_99878-video-720.mp4
 
 user_video_posters/b4d45240d51a449482b082aa4a3db179.jpg
+

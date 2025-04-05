@@ -2,8 +2,10 @@
 
 import time
 import ffmpeg
+from pathlib import Path
 import aiofiles
 import io
+import urllib.parse
 from uuid import uuid4
 from prettyconf import config
 import os
@@ -17,6 +19,7 @@ from aiobotocore.session import get_session
 from geoalchemy2 import Geometry
 from geoalchemy2.shape import to_shape
 from shapely.geometry import Point, MultiPoint
+from typing import Optional
 
 from models import UserProfiles, Hashtag, ProfileHashtag, User
 from schemas import FormData
@@ -45,77 +48,118 @@ AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 
 
 async def convert_to_vp9(input_path, output_path, logger):
-    """Конвертация видео с сохранением качества и минимизацией увеличения размера, юзаем кодек гугла VP9"""
+    """Конвертация в VP9 с сохранением качества оригинала"""
     start_time = time.time()
 
-    # Извлечение имени файла из пути
-    input_filename = os.path.basename(input_path)
-
-    # Проверка расширения выходного файла
-    if not output_path.endswith('.webm'):
-        output_path = os.path.join(os.path.dirname(output_path), f"{input_filename}_converted.webm")
+    # Создаем структуру папок
+    filename = os.path.splitext(os.path.basename(input_path))[0]
+    video_folder = os.path.join(output_path, filename)
+    os.makedirs(video_folder, exist_ok=True)
+    output_file = os.path.join(video_folder, f"{filename}.webm")
 
     try:
-        logger.info(f"Запуск конвертации видео в VP9: {input_path} -> {output_path}")
+        # Получаем исходный размер файла
+        input_size = os.path.getsize(input_path) / (1024 * 1024)  # в MB
+
+        logger.info(f"Начало конвертации: {input_path} (размер: {input_size:.2f} MB)")
+
+        # Получаем метаданные исходного файла
+        probe = ffmpeg.probe(input_path)
+        video_stream = next((s for s in probe['streams'] if s['codec_type'] == 'video'), None)
+
+        # Параметры конвертации
+        args = {
+            'vcodec': 'libvpx-vp9',
+            'crf': 23,
+            'b:v': '0',
+            'deadline': 'good',
+            'cpu-used': 2,
+            'row-mt': '1',
+            'auto-alt-ref': '1',
+            'acodec': 'libopus',
+            'b:a': '128k' if video_stream and video_stream.get('width', 0) >= 1280 else '96k',
+            'loglevel': 'quiet'  # Отключаем вывод FFmpeg в консоль
+        }
+
+        # Запускаем конвертацию
         (
             ffmpeg
             .input(input_path)
-            .output(output_path, vcodec='libvpx-vp9', acodec='libopus', crf=30, audio_bitrate='96k')
+            .output(output_file, **args)
             .overwrite_output()
-            .run(capture_stdout=True, capture_stderr=True)
+            .run()
         )
-        elapsed_time = time.time() - start_time
-        output_size = get_file_size(output_path)
+
+        # Получаем размер выходного файла
+        output_size = os.path.getsize(output_file) / (1024 * 1024)  # в MB
+        duration = time.time() - start_time
+
         logger.info(
-            f"Конвертация в VP9 завершена: {output_path} (Размер: {output_size:.2f} MB, Время: {elapsed_time:.2f} сек.)")
+            f"Конвертация завершена за {duration:.2f} сек | "
+            f"Исходный размер: {input_size:.2f} MB | "
+            f"Выходной размер: {output_size:.2f} MB | "
+            f"Коэффициент сжатия: {input_size/output_size:.2f}x"
+        )
+
+        return {
+            "video_path": output_file,
+            "folder_path": video_folder,
+            "original_size": input_size,
+            "converted_size": output_size
+        }
+
     except ffmpeg.Error as e:
-        logger.error(f"Ошибка FFmpeg при конвертации: {e.stderr.decode()}")
-        raise RuntimeError("Не удалось конвертировать видео в VP9")
-
-    logger.info(f"Видео успешно обработано: {output_path} (Размер: {output_size:.2f} MB)")
-
-    # Лог пути к конвертированному файлу (для проверки перед сохранением в БД)
-    logger.info(f"Путь к конвертированному видео: {output_path}")
-
-    # Возврат пути к конвертированному файлу
-    return output_path
+        error_msg = e.stderr.decode('utf-8', errors='replace') if e.stderr else str(e)
+        logger.error(f"Ошибка конвертации: {error_msg}")
+        raise RuntimeError(f"Ошибка конвертации: {error_msg}")
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка: {str(e)}")
+        raise
 
 
-async def extract_preview(input_path, preview_path, duration=PREVIEW_DURATION, logger=None):
-    """Извлечение превью"""
-    start_time = time.time()
-
-    # Извлечение имени файла из пути
-    input_filename = os.path.basename(input_path)
-
-    # Проверка расширения выходного файла
-    if not preview_path.endswith('.webm'):
-        preview_path = os.path.join(os.path.dirname(preview_path), f"{input_filename}_preview.webm")
+async def create_hls_playlist(conversion_result: dict, logger):
+    input_video_path = conversion_result["converted_path"]
+    video_folder = conversion_result["video_folder"]
+    hls_dir = os.path.join(video_folder, "hls")
+    os.makedirs(hls_dir, exist_ok=True)
 
     try:
-        logger.info(f"Извлечение превью из видео: {input_path} -> {preview_path} (Длительность: {duration} сек.)")
+        original_name = os.path.splitext(os.path.basename(input_video_path))[0]
+        master_playlist = f"{original_name}.m3u8"
+        segment_pattern = f"{original_name}_%03d.ts"
+
+        # Оптимальные параметры (сегменты по 5 секунд)
         (
             ffmpeg
-            .input(input_path, ss=0, t=duration)
-            .output(preview_path, vcodec='libvpx-vp9', acodec='libopus')
+            .input(input_video_path)
+            .output(
+                os.path.join(hls_dir, master_playlist),
+                format="hls",
+                hls_playlist_type="vod",
+                hls_time=5,  # 5 секунд — лучший баланс
+                hls_flags="independent_segments+delete_segments",
+                hls_segment_filename=os.path.join(hls_dir, segment_pattern),
+                c="copy",
+                vcodec="libvpx-vp9",
+                acodec="copy",
+                start_number=0,
+                loglevel="error"  # Только ошибки
+            )
             .overwrite_output()
-            .run(capture_stdout=True, capture_stderr=True)
+            .run()
         )
-        elapsed_time = time.time() - start_time
-        preview_size = get_file_size(preview_path)
-        logger.info(
-            f"Извлечение превью завершено: {preview_path} (Размер: {preview_size:.2f} MB, Время: {elapsed_time:.2f} сек.)")
+
+        logger.info("HLS создан: сегменты по 5 сек (оптимальный баланс)")
+        return {
+            "hls_dir": hls_dir,
+            "master_playlist": os.path.join(hls_dir, master_playlist),
+            "segment_pattern": segment_pattern.replace('%03d', '*')
+        }
+
     except ffmpeg.Error as e:
-        logger.error(f"Ошибка FFmpeg при извлечении превью: {e.stderr.decode()}")
-        raise RuntimeError("Не удалось извлечь превью")
-
-    logger.info(f"Превью успешно извлечено: {preview_path} (Размер: {preview_size:.2f} MB)")
-
-    # Лог пути к извлеченному превью (для проверки перед сохранением в БД)
-    logger.info(f"Путь к извлеченному превью: {preview_path}")
-
-    # Возврат пути к превью (улетает в ф-ию загрузки в облако)
-    return preview_path
+        error_msg = e.stderr.decode('utf-8', errors='replace') if e.stderr else str(e)
+        logger.error(f"FFmpeg error: {error_msg}")
+        raise RuntimeError(f"HLS generation failed: {error_msg}")
 
 
 # Извлечение картинки из видео (для отображения постера на фронте)
@@ -183,82 +227,164 @@ async def check_s3_connection(logger):
         raise RuntimeError(f"Не удалось подключиться к AWS S3: {e}")
 
 
-async def upload_to_s3(converted_video, preview_video, logger):
-    """
-    Загрузка видео и превью в S3 с предварительной проверкой соединения.
+async def upload_to_s3(processing_data: dict, logger) -> dict:
+    """Рекурсивная загрузка всей папки (видео + HLS) в S3"""
+    if processing_data.get("status") != "success":
+        raise ValueError("Нет данных для загрузки")
 
-    :param converted_video: Локальный путь к конвертированному видео.
-    :param preview_video: Локальный путь к превью.
-    :param logger: Логгер для записи логов.
-    :return: Ссылки на загруженные файлы.
-    """
+    video_folder = processing_data["video_folder"]
+    folder_name = os.path.basename(video_folder)
+
     try:
-        # Проверка соединения с MinIO
         await check_s3_connection(logger)
+        base_s3_path = f"videos/{folder_name}"
 
-        # Просто используются имена файлов без ключей, так как они получают уникальные имена и ключи для S3 это лишее (модуль вьюх)
-        video_filename = os.path.basename(converted_video)
-        preview_filename = os.path.basename(preview_video)
-
-        # Проверка наличия папки в бакете и создание ее при необходимости
         async with get_session().create_client(
                 "s3",
                 region_name=AWS_REGION,
                 aws_access_key_id=AWS_ACCESS_KEY_ID,
                 aws_secret_access_key=AWS_SECRET_ACCESS_KEY
         ) as s3_client:
-            # Загрузка видео
-            logger.info(f"Загрузка видео в AWS S3: {converted_video} -> {video_filename}")
-            async with aiofiles.open(converted_video, "rb") as video_file:
-                video_stream = io.BytesIO(await video_file.read())
-            response_video = await s3_client.put_object(
+            # 1. Загружаем основное видео (не из папки hls)
+            video_files = [f for f in os.listdir(video_folder)
+                           if not f.startswith('.') and f != 'hls']
+
+            if not video_files:
+                raise FileNotFoundError("Основной видеофайл не найден")
+
+            video_file = video_files[0]
+            video_path = os.path.join(video_folder, video_file)
+
+            await s3_client.put_object(
                 Bucket=S3_BUCKET_NAME,
-                Key=video_filename,  # Имя файла как ключ (см. выше)
-                Body=video_stream,
+                Key=f"{base_s3_path}/{video_file}",
+                Body=open(video_path, 'rb')
             )
-            if response_video["ResponseMetadata"]["HTTPStatusCode"] != 200:
-                raise RuntimeError(f"Ошибка при загрузке видео: некорректный код ответа")
 
-            logger.info(f"Видео успешно загружено в AWS S3: {video_filename}")
+            # 2. Рекурсивная загрузка папки hls
+            hls_dir = os.path.join(video_folder, "hls")
+            if os.path.exists(hls_dir):
+                for root, _, files in os.walk(hls_dir):
+                    for file in files:
+                        local_path = os.path.join(root, file)
+                        relative_path = os.path.relpath(local_path, video_folder)
+                        s3_key = f"{base_s3_path}/{relative_path.replace(os.sep, '/')}"
 
-            # Загрузка превью
-            logger.info(f"Загрузка превью в AWS S3: {preview_video} -> {preview_filename}")
-            async with aiofiles.open(preview_video, "rb") as preview_file:
-                preview_stream = io.BytesIO(await preview_file.read())
-            response_preview = await s3_client.put_object(
-                Bucket=S3_BUCKET_NAME,
-                Key=preview_filename,  # Имя файла как ключ (см. выше)
-                Body=preview_stream,
-            )
-            if response_preview["ResponseMetadata"]["HTTPStatusCode"] != 200:
-                raise RuntimeError(f"Ошибка при загрузке превью: некорректный код ответа")
+                        await s3_client.put_object(
+                            Bucket=S3_BUCKET_NAME,
+                            Key=s3_key,
+                            Body=open(local_path, 'rb')
+                        )
 
-            logger.info(f"Превью успешно загружено в AWS S3: {preview_filename}")
-
-        # Возврат ссылок на загруженные файлы
-        video_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{video_filename}"
-        preview_url = f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{preview_filename}"
-        logger.info(f"Загруженные файлы: Видео - {video_url}, Превью - {preview_url}")
-
-        return video_url, preview_url
+            # 3. Формируем URL
+            master_playlist = "hls/master.m3u8"  # или другой главный плейлист
+            return {
+                "video_url": f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{base_s3_path}/{video_file}",
+                "preview_url": f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{base_s3_path}/{master_playlist}"
+            }
 
     except Exception as e:
-        logger.error(f"Ошибка при загрузке файлов в S3: {e}")
-        raise RuntimeError(f"Не удалось загрузить файлы в S3: {e}")
+        logger.error(f"Ошибка загрузки: {str(e)}", exc_info=True)
+        raise RuntimeError(f"Ошибка загрузки в S3: {str(e)}")
+
+
+# Логика удаления старых файлов с облака
+async def delete_video_folder(video_url: str, logger) -> bool:
+    """Удаляет все файлы по префиксу с детальным логгированием"""
+    try:
+        parsed = urllib.parse.urlparse(video_url)
+        prefix = '/'.join(parsed.path.lstrip('/').split('/')[:-1]) + '/'
+
+        logger.info(f"Начинаем удаление по префиксу: {prefix}")
+
+        async with get_session().create_client(
+                "s3",
+                region_name=AWS_REGION,
+                aws_access_key_id=AWS_ACCESS_KEY_ID,
+                aws_secret_access_key=AWS_SECRET_ACCESS_KEY
+        ) as s3:
+            # Логируем запрос
+            logger.info(f"Запрашиваем объекты для префикса: {prefix}")
+
+            objects = await s3.list_objects_v2(
+                Bucket=S3_BUCKET_NAME,
+                Prefix=prefix
+            )
+
+            if not objects.get('Contents'):
+                logger.warning(f"Не найдено объектов для удаления по префиксу: {prefix}")
+                return False
+
+            # Детальный лог объектов
+            file_list = "\n".join([f" - {obj['Key']} ({obj['Size']} bytes)"
+                                   for obj in objects['Contents']])
+            logger.info(f"Найдены объекты для удаления:\n{file_list}")
+
+            # Удаление с подтверждением
+            response = await s3.delete_objects(
+                Bucket=S3_BUCKET_NAME,
+                Delete={
+                    'Objects': [{'Key': obj['Key']} for obj in objects['Contents']],
+                    'Quiet': False  # Получаем подробный ответ
+                }
+            )
+
+            # Логируем результат
+            if 'Deleted' in response:
+                deleted_files = "\n".join([f" - {item['Key']}" for item in response['Deleted']])
+                logger.info(f"Успешно удалены:\n{deleted_files}")
+
+            if 'Errors' in response:
+                errors = "\n".join([f" - {item['Key']}: {item['Message']}"
+                                    for item in response['Errors']])
+                logger.error(f"Ошибки при удалении:\n{errors}")
+                return False
+
+            return True
+
+    except Exception as e:
+        logger.error(f"КРИТИЧЕСКАЯ ОШИБКА: {str(e)}", exc_info=True)
+        return False
+
+
+# Логика удаления старой аватарки юзера и постера к видео
+async def delete_old_media_files(
+        old_logo_url: Optional[str],
+        old_poster_url: Optional[str],
+        logger
+):
+    """
+    Удаление старых медиафайлов (логотипа и постера) из локальных папок
+
+    :param old_logo_url: Локальный путь к старому логотипу
+    :param old_poster_url: Локальный путь к старому постеру
+    :param logger: Логгер для записи событий
+    """
+    try:
+        if old_logo_url:
+            logo_path = Path(old_logo_url)
+            if logo_path.exists():
+                os.unlink(logo_path)
+                logger.info(f"Локальный файл логотипа удален: {logo_path}")
+            else:
+                logger.warning(f"Файл логотипа не найден: {logo_path}")
+
+        if old_poster_url:
+            poster_path = Path(old_poster_url)
+            if poster_path.exists():
+                os.unlink(poster_path)
+                logger.info(f"Локальный файл постера удален: {poster_path}")
+            else:
+                logger.warning(f"Файл постера не найден: {poster_path}")
+
+    except Exception as e:
+        logger.error(f"Ошибка при удалении локальных файлов: {e}")
+        # Не прерываем выполнение, если не удалось удалить файлы
 
 
 async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_url: str, preview_url: str, poster_path: str, user_logo_url: str, wallet_number: str, logger):
     """
     Сохранение или обновление данных пользователя, логотипа и хэштегов в БД.
-
-    :param session: Сессия работы с БД.
-    :param form_data: Данные формы (валидация Pydantic см. модкль схем).
-    :param video_url: URL загруженного видео.
-    :param preview_url: URL превью видео.
-    :param user_logo_url: URL логотипа пользователя.
-    :param logger: Объект логгера.
-    :param wallet_number: номер кошелька юзера (прилетает уже хэшированный)
-    Уникальная ссылка генерируется только при создании профиля и сохраняется при обновлениях
     """
     try:
         async with session.begin():
@@ -270,7 +396,20 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
             if not user:
                 raise HTTPException(status_code=400, detail="Пользователь с данным кошельком не найден.")
 
-            # Получаем координаты из form_data
+            # 2. Удаление старых файлов из облака (если профиль уже существует)
+            existing_profile_stmt = select(UserProfiles).where(UserProfiles.user_id == user.id)
+            existing_profile_result = await session.execute(existing_profile_stmt)
+            existing_profile = existing_profile_result.scalars().first()
+
+            if existing_profile and existing_profile.video_url:
+                try:
+                    await delete_video_folder(existing_profile.video_url, logger)
+                    logger.info(f"Старые файлы удалены из облака для {wallet_number}")
+                except Exception as e:
+                    logger.error(f"Ошибка удаления старых файлов: {e}")
+                    # Не прерываем выполнение, если не удалось удалить файлы
+
+            # 3. Получаем координаты из form_data
             coordinates = form_data.get("coordinates")
 
             # Преобразуем координаты в строку WKT, если они есть
@@ -280,7 +419,7 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                 multi_point = MultiPoint(points)
                 multi_point_wkt = str(multi_point)
 
-            # 2. Проверка флага is_profile_created
+            # 4. Проверка флага is_profile_created
             if not user.is_profile_created:
                 # Генерируем уникальную ссылку только при создании нового профиля
                 unique_link = await generate_unique_link()
@@ -317,6 +456,22 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                 result = await session.execute(stmt)
                 profile = result.scalars().first()
 
+                # Проверяем, изменились ли медиафайлы
+                old_logo_url = profile.user_logo_url
+                old_poster_url = profile.poster_url
+
+                if (old_logo_url and old_logo_url != user_logo_url) or \
+                        (old_poster_url and old_poster_url != poster_path):
+                    try:
+                        await delete_old_media_files(
+                            old_logo_url if old_logo_url != user_logo_url else None,
+                            old_poster_url if old_poster_url != poster_path else None,
+                            logger
+                        )
+                    except Exception as e:
+                        logger.error(f"Ошибка при удалении старых медиафайлов: {e}")
+                        # Продолжаем выполнение даже если не удалось удалить файлы
+
                 # Сохраняем ВСЕ неизменяемые объекты при обновлении поля
                 current_unique_link = profile.user_link
                 current_is_admin = profile.is_admin
@@ -324,10 +479,8 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
 
                 # Обновляем только разрешенные для изменения поля
                 profile.name = form_data["name"]
-                profile.website_or_social = form_data["website_or_social"] if form_data[
-                                                                                  "website_or_social"] is not None else None
-                profile.activity_and_hobbies = form_data["activity_hobbies"] if form_data[
-                                                                                    "activity_hobbies"] is not None else None
+                profile.website_or_social = form_data["website_or_social"] if form_data["website_or_social"] is not None else None
+                profile.activity_and_hobbies = form_data["activity_hobbies"] if form_data["activity_hobbies"] is not None else None
                 profile.video_url = video_url
                 profile.preview_url = preview_url
                 profile.user_logo_url = user_logo_url
@@ -347,44 +500,52 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                 session.add(profile)
                 logger.info(f"Профиль обновлен, уникальная ссылка сохранена: {current_unique_link}")
 
-        # Остальной код (работа с хэштегами) остается без изменений
-        if form_data.get("hashtags"):
-            hashtags_list = [tag.strip().lower().lstrip("#") for tag in form_data["hashtags"] if tag.strip()]
+            # 5. Полная синхронизация хэштегов
+            if form_data.get("hashtags"):
+                # Получаем текущие хэштеги профиля
+                current_hashtags_stmt = select(Hashtag).join(ProfileHashtag).where(
+                    ProfileHashtag.profile_id == profile.id)
+                current_hashtags_result = await session.execute(current_hashtags_stmt)
+                current_hashtags = {tag.tag: tag for tag in current_hashtags_result.scalars().all()}
 
-            if hashtags_list:
-                existing_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
-                existing_hashtags_result = await session.execute(existing_hashtags_stmt)
-                existing_hashtags = {tag.tag: tag for tag in existing_hashtags_result.scalars().all()}
+                # Нормализуем новые хэштеги
+                new_tags = {tag.strip().lower().lstrip("#") for tag in form_data["hashtags"] if tag.strip()}
 
-                new_hashtags = []
-                for hashtag in hashtags_list:
-                    if hashtag not in existing_hashtags:
-                        new_hashtag = Hashtag(tag=hashtag)
-                        session.add(new_hashtag)
-                        new_hashtags.append(new_hashtag)
-
-                await session.flush()
-
-                for hashtag in hashtags_list:
-                    if hashtag not in existing_hashtags:
-                        new_hashtag = next((h for h in new_hashtags if h.tag == hashtag), None)
-                        if new_hashtag:
-                            profile_hashtag = ProfileHashtag(profile_id=profile.id, hashtag_id=new_hashtag.id)
-                            session.add(profile_hashtag)
-                    else:
-                        existing_link_stmt = select(ProfileHashtag).where(
+                # Удаляем отсутствующие хэштеги
+                for tag_name, tag_obj in current_hashtags.items():
+                    if tag_name not in new_tags:
+                        delete_stmt = delete(ProfileHashtag).where(
                             ProfileHashtag.profile_id == profile.id,
-                            ProfileHashtag.hashtag_id == existing_hashtags[hashtag].id
+                            ProfileHashtag.hashtag_id == tag_obj.id
                         )
-                        existing_link_result = await session.execute(existing_link_stmt)
-                        existing_link = existing_link_result.scalars().first()
+                        await session.execute(delete_stmt)
+                        logger.debug(f"Удалена связь с хэштегом: {tag_name}")
 
-                        if not existing_link:
-                            profile_hashtag = ProfileHashtag(profile_id=profile.id,
-                                                             hashtag_id=existing_hashtags[hashtag].id)
-                            session.add(profile_hashtag)
+                # Добавляем новые хэштеги
+                existing_tags_stmt = select(Hashtag).where(Hashtag.tag.in_(new_tags))
+                existing_tags_result = await session.execute(existing_tags_stmt)
+                existing_tags = {tag.tag: tag for tag in existing_tags_result.scalars().all()}
 
-                logger.info(f"Хэштеги обновлены для профиля {wallet_number}")
+                for tag_name in new_tags:
+                    if tag_name not in existing_tags:
+                        new_hashtag = Hashtag(tag=tag_name)
+                        session.add(new_hashtag)
+                        await session.flush()
+                        existing_tags[tag_name] = new_hashtag
+
+                    # Проверяем и создаем связь при необходимости
+                    link_stmt = select(ProfileHashtag).where(
+                        ProfileHashtag.profile_id == profile.id,
+                        ProfileHashtag.hashtag_id == existing_tags[tag_name].id
+                    )
+                    link_result = await session.execute(link_stmt)
+                    if not link_result.scalars().first():
+                        session.add(ProfileHashtag(
+                            profile_id=profile.id,
+                            hashtag_id=existing_tags[tag_name].id
+                        ))
+
+                logger.info(f"Обновлено хэштегов: {len(new_tags)}")
 
         await session.commit()
         logger.info(f"Данные успешно сохранены для кошелька {wallet_number}")
@@ -398,3 +559,7 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
         logger.exception(f"Непредвиденная ошибка: {e}")
         await session.rollback()
         raise HTTPException(status_code=500, detail="Ошибка сохранения данных в базе")
+
+
+
+

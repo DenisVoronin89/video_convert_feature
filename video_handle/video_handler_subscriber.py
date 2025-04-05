@@ -5,18 +5,19 @@
 
 import json
 import asyncio
+import os
 from datetime import datetime, timedelta
 from sqlalchemy.exc import SQLAlchemyError
 from database import get_db_session_for_worker
 from redis.asyncio import Redis
 from video_handle.video_handler_worker import (
     convert_to_vp9,
-    extract_preview,
     upload_to_s3,
     save_profile_to_db,
     check_s3_connection,
+    create_hls_playlist,
     extract_frame,
-    PREVIEW_DURATION
+    delete_video_folder
 )
 from logging_config import get_logger
 
@@ -29,92 +30,80 @@ REDIS_HOST = "redis"
 
 # Функция обработки задач на микросервисе
 async def handle_task(task_data):
-    """Обработка всех задач последовательно"""
+    """Обработка всех задач последовательно с генерацией HLS"""
     logger.info(f"Получена задача для обработки: {task_data}")
 
     try:
-        # Извлечение строк путей (потому что созданные директории это словарь)
-        input_path = task_data["input_path"]
+        # Извлечение входных данных
+        input_video = task_data["input_path"]
         output_path = task_data["output_path"]["path"]
-        preview_path = task_data["preview_path"]["path"]
-        user_logo_url = task_data["user_logo_url"]
+        form_data = task_data["form_data"]
+        user_logo = task_data["user_logo_url"]
+        wallet_hash = task_data["wallet_number"]
 
-        # Последовательное выполнение всех шагов
         # 1. Конвертация видео
-        logger.info(f"Начинаю конвертацию видео {task_data['input_path']} в VP9")
-        converted_video = await convert_to_vp9(
-            input_path=task_data["input_path"],
+        logger.info(f"Конвертация видео: {input_video}")
+        conversion_result = await convert_to_vp9(
+            input_path=input_video,
             output_path=output_path,
-            logger=logger,
+            logger=logger
         )
+        video_file_path = conversion_result["video_path"]
+        video_folder = conversion_result["folder_path"]
+        logger.info(f"Видео сконвертировано: {video_file_path}")
 
-        logger.info(f"Задача конвертации для {task_data['input_path']} завершена успешно")
-
-        # 2. Извлечение превью
-        logger.info(f"Начинаю извлечение превью для {task_data['input_path']}")
-        preview_video = await extract_preview(
-            input_path=task_data["input_path"],
-            preview_path=preview_path,
-            duration=PREVIEW_DURATION,
-            logger=logger,
+        # 2. Генерация HLS
+        logger.info("Генерация HLS плейлиста")
+        hls_result = await create_hls_playlist(
+            conversion_result={"converted_path": video_file_path, "video_folder": video_folder},
+            logger=logger
         )
+        logger.info(f"HLS создан: {hls_result['master_playlist']}")
 
-        logger.info(f"Извлечение превью для {task_data['input_path']} завершено успешно")
-
-        # 3. Извлечение постера из превью
-        logger.info(f"Начинаю извлечение постера для {task_data['input_path']}")
+        # 3. Извлечение постера
+        logger.info("Извлечение постера из видео")
         poster_path = await extract_frame(
-            video_path=preview_video,  # Используем превью как источник для постера
-            posters_folder="user_video_posters",  # Папка для сохранения постера
-            frame_time=2,  # Время для извлечения кадра (2 секунды)
-            logger=logger,
+            video_path=video_file_path,
+            posters_folder="user_video_posters",
+            frame_time=2,
+            logger=logger
         )
+        logger.info(f"Постер сохранен: {poster_path}")
 
-        logger.info(f"Извлечение постера для {task_data['input_path']} завершено успешно. Путь: {poster_path}")
-
-        # 4. Загрузка в хранилище (пока по дефолту юзаем AWS S3, потом в проде переписать в зависимости от хранилища)
-        logger.info(f"Начинаю загрузку видео {task_data['output_path']} и превью {task_data['preview_path']} в S3")
-        video_url, preview_url = await upload_to_s3(
-            converted_video,
-            preview_video,
-            logger=logger,
+        # 4. Загрузка в облачное хранилище
+        logger.info("Загрузка файлов в S3")
+        upload_result = await upload_to_s3(
+            processing_data={
+                "status": "success",
+                "video_folder": video_folder,
+                "filename": os.path.splitext(os.path.basename(video_file_path))[0]
+            },
+            logger=logger
         )
+        logger.info(f"Файлы загружены: {upload_result['video_url']}")
 
-        logger.info(f"Загрузка видео {task_data['output_path']} в S3 завершена успешно. URL: {video_url}")
-        logger.info(f"Загрузка превью {task_data['preview_path']} в S3 завершена успешно. URL: {preview_url}")
-
-        # 5. Сохранение профиля в БД
-        logger.info(f"Начинаю сохранение профиля в БД для пользователя {task_data['form_data'].get('name', 'Неизвестно')}")
-        try:
-            async with get_db_session_for_worker() as session:
-                # Передача сессии в ф-ию save_profile_to_db
-                await save_profile_to_db(
-                    session=session,
-                    form_data=task_data["form_data"],
-                    video_url=video_url,
-                    preview_url=preview_url,
-                    poster_path=poster_path,
-                    user_logo_url=task_data["user_logo_url"],
-                    wallet_number=task_data["wallet_number"],
-                    logger=logger
-                )
-
-            logger.info(f"Профиль с именем {task_data['form_data'].get('name', 'Неизвестно')} успешно сохранен в БД")
-
-        except SQLAlchemyError as e:
-            logger.error(f"Ошибка при сохранении профиля в БД: {e}")
-            raise
-
-        logger.info(f"Весь цикл задач для {task_data['input_path']} выполнен успешно!")
+        # 5. Сохранение данных в БД
+        logger.info("Сохранение профиля в базе данных")
+        async with get_db_session_for_worker() as db_session:
+            await save_profile_to_db(
+                session=db_session,
+                form_data=form_data,
+                video_url=upload_result["video_url"],
+                preview_url=upload_result["preview_url"],
+                poster_path=poster_path,
+                user_logo_url=user_logo,
+                wallet_number=wallet_hash,
+                logger=logger
+            )
+        logger.info("Профиль успешно сохранен")
 
     except Exception as e:
-        logger.error(f"Ошибка при обработке задачи для видео {task_data['input_path']}: {e}")
-        raise
+        logger.error(f"Ошибка обработки задачи: {str(e)}", exc_info=True)
+        raise RuntimeError(f"Ошибка обработки задачи: {str(e)}")
 
     finally:
-        # Очистка данных задачи после выполнения или ошибки
         task_data.clear()
-        logger.info("Данные задачи очищены.")
+        logger.info("Задача завершена, данные очищены")
 
 
 # Запуск подписчика в работу, проверка соединения с облаком

@@ -1,7 +1,7 @@
 """add poster_url to user_profiles
 
 Revision ID: 587c392bfbad
-Revises: 
+Revises:
 Create Date: 2025-03-18 18:09:12.863372
 
 """

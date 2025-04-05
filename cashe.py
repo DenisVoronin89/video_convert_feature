@@ -22,12 +22,14 @@ from geoalchemy2.shape import to_shape
 from shapely.wkt import loads as wkt_loads
 from shapely.geometry import Point, MultiPoint
 from typing import List, Dict, Set, Tuple
+from dotenv import load_dotenv
 
 from logging_config import get_logger
 from database import get_db_session, get_db_session_for_worker
 from models import UserProfiles, Favorite, Hashtag, ProfileHashtag, User
 from utils import datetime_to_str, process_coordinates_for_response, parse_coordinates, generate_unique_link, move_image_to_user_logo
 from schemas import serialize_form_data, FormData
+from video_handle.video_handler_worker import delete_video_folder, delete_old_media_files
 
 
 logger = get_logger()
@@ -37,6 +39,14 @@ redis_client = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
 
 # Константы для TTL пользователей, пагинированных страниц с профилями, сортированных по новизне/популярности сетов (12 часов)
 CACHE_PROFILES_TTL_SEK = 43200
+
+load_dotenv()
+
+# Конфиги для облака
+S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
+AWS_REGION = os.getenv("AWS_REGION")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 
 
 # ЛОГИКА РАБОТЫ С ИЗБРАННЫМ
@@ -613,11 +623,11 @@ async def get_profiles_by_ids(profile_ids: List[int]) -> List[dict]:
 
 # Сохранение профиля без видео
 async def save_profile_to_db_without_video(
-    form_data: FormData,
-    image_data: dict,
-    created_dirs: dict,
-    new_user_image: bool = True,  # Новый параметр
-    delete_video: bool = False  # Новый параметр для удаления видео
+        form_data: FormData,
+        image_data: dict,
+        created_dirs: dict,
+        new_user_image: bool = True,
+        delete_video: bool = False
 ):
     """
     Сохраняет или обновляет профиль пользователя в базе данных без видео.
@@ -705,6 +715,54 @@ async def save_profile_to_db_without_video(
                 is_new_profile = False  # Флаг для определения, был ли создан новый профиль
 
                 if profile:
+                    # Удаление старой аватарки
+                    if new_user_image:
+                        old_logo_url = profile.user_logo_url
+                        profile.user_logo_url = user_logo_path
+
+                        if old_logo_url and old_logo_url != user_logo_path:
+                            try:
+                                await delete_old_media_files(
+                                    old_logo_url=old_logo_url,
+                                    old_poster_url=None,  # Постер не трогаем
+                                    logger=logger
+                                )
+                                logger.info(f"Старый логотип удалён: {old_logo_url}")
+                            except Exception as e:
+                                logger.error(f"Ошибка удаления логотипа: {e}")
+
+                    # Удаление старого постера
+                    if delete_video:
+                        # Удаляем видео и превью через delete_video_folder (папками)
+                        if profile.video_url:
+                            try:
+                                await delete_video_folder(profile.video_url, logger)
+                                logger.info(f"Папка видео удалена: {profile.video_url}")
+                            except Exception as e:
+                                logger.error(f"Ошибка удаления видео: {e}")
+
+                        if profile.preview_url:
+                            try:
+                                await delete_video_folder(profile.preview_url, logger)
+                                logger.info(f"Папка превью удалена: {profile.preview_url}")
+                            except Exception as e:
+                                logger.error(f"Ошибка удаления превью: {e}")
+
+                        # Удаляем постер через delete_old_media_files (отдельный файл)
+                        if profile.poster_url:
+                            try:
+                                await delete_old_media_files(
+                                    old_logo_url=None,  # Логотип не трогаем
+                                    old_poster_url=profile.poster_url,
+                                    logger=logger
+                                )
+                                logger.info(f"Постер удалён: {profile.poster_url}")
+                            except Exception as e:
+                                logger.error(f"Ошибка удаления постера: {e}")
+
+                    # Сохраняем старый URL логотипа перед обновлением
+                    old_logo_url = profile.user_logo_url if new_user_image else None
+
                     # Сохраняем неизменяемые поля
                     current_user_link = profile.user_link
                     current_is_admin = profile.is_admin
@@ -724,12 +782,41 @@ async def save_profile_to_db_without_video(
 
                     if new_user_image:
                         profile.user_logo_url = user_logo_path
+                        if old_logo_url:
+                            try:
+                                await delete_user_logo(old_logo_url, logger)
+                            except Exception as e:
+                                logger.error(f"Ошибка при удалении старого логотипа: {e}")
+                                # Продолжаем выполнение даже если не удалось удалить
 
-                    # Обработка видео, превью и постера
+                    # Обработка удаления видео
                     if delete_video:
+                        old_video_url = profile.video_url
+                        old_preview_url = profile.preview_url
+                        old_poster_url = profile.poster_url
+
                         profile.video_url = None
                         profile.preview_url = None
                         profile.poster_url = None
+
+                        if old_video_url:
+                            try:
+                                await delete_video_folder(old_video_url, logger)
+                                logger.info(f"Видео удалено из облака: {old_video_url}")
+                            except Exception as e:
+                                logger.error(f"Ошибка удаления видео: {e}")
+                        if old_preview_url:
+                            try:
+                                await delete_video_folder(old_preview_url, logger)
+                                logger.info(f"Превью удалено из облака: {old_preview_url}")
+                            except Exception as e:
+                                logger.error(f"Ошибка удаления превью: {e}")
+                        if old_poster_url:
+                            try:
+                                await delete_video_folder(old_poster_url, logger)
+                                logger.info(f"Постер удален из облака: {old_poster_url}")
+                            except Exception as e:
+                                logger.error(f"Ошибка удаления постера: {e}")
 
                     # Восстанавливаем неизменяемые поля
                     profile.user_link = current_user_link
@@ -757,7 +844,7 @@ async def save_profile_to_db_without_video(
                         user_id=user.id,
                         language=form_data_dict.get("language"),
                         user_logo_url=user_logo_path if new_user_image else None,
-                        user_link=user_link,  # Добавляем сгенерированную ссылку
+                        user_link=user_link,
                         video_url=None,
                         preview_url=None,
                         poster_url=None
@@ -770,48 +857,53 @@ async def save_profile_to_db_without_video(
                     is_new_profile = True
                     logger.info(f"Создан профиль для пользователя {user.id} с user_link: {user_link}")
 
-                # Работа с хэштегами (безопасная, с проверкой существующих связей)
-                if "hashtags" in form_data_dict:  # Исправлено: работаем с form_data_dict вместо form_data
+                # Работа с хэштегами
+                if "hashtags" in form_data_dict:
                     hashtags_input = form_data_dict["hashtags"]
-                    hashtags_list = [tag.strip().lower().lstrip("#") for tag in hashtags_input if tag.strip()]
+                    requested_tags = {tag.strip().lower().lstrip("#") for tag in hashtags_input if tag.strip()}
 
-                    if hashtags_list:
-                        # 1. Получаем существующие хэштеги
-                        existing_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
-                        existing_hashtags_result = await session.execute(existing_hashtags_stmt)
-                        existing_hashtags = {tag.tag: tag for tag in existing_hashtags_result.scalars().all()}
+                    if requested_tags:
+                        # 1. Получаем все текущие хэштеги профиля
+                        current_hashtags_stmt = select(Hashtag).join(ProfileHashtag).where(
+                            ProfileHashtag.profile_id == profile.id)
+                        current_hashtags_result = await session.execute(current_hashtags_stmt)
+                        current_hashtags = {tag.tag: tag for tag in current_hashtags_result.scalars().all()}
 
-                        # 2. Создаем недостающие хэштеги
-                        new_hashtags = []
-                        for hashtag in hashtags_list:
-                            if hashtag not in existing_hashtags:
-                                new_hashtag = Hashtag(tag=hashtag)
+                        # 2. Удаляем связи с хэштегами, которых нет в запросе
+                        for tag_name, tag_obj in current_hashtags.items():
+                            if tag_name not in requested_tags:
+                                delete_stmt = delete(ProfileHashtag).where(
+                                    ProfileHashtag.profile_id == profile.id,
+                                    ProfileHashtag.hashtag_id == tag_obj.id
+                                )
+                                await session.execute(delete_stmt)
+                                logger.debug(f"Удалена связь с хэштегом: {tag_name}")
+
+                        # 3. Добавляем новые хэштеги
+                        existing_tags_stmt = select(Hashtag).where(Hashtag.tag.in_(requested_tags))
+                        existing_tags_result = await session.execute(existing_tags_stmt)
+                        existing_tags = {tag.tag: tag for tag in existing_tags_result.scalars().all()}
+
+                        for tag_name in requested_tags:
+                            if tag_name not in existing_tags:
+                                new_hashtag = Hashtag(tag=tag_name)
                                 session.add(new_hashtag)
-                                new_hashtags.append(new_hashtag)
+                                await session.flush()
+                                existing_tags[tag_name] = new_hashtag
 
-                        await session.flush()  # Фиксируем новые хэштеги для получения их ID
+                            # Проверяем и создаем связь при необходимости
+                            link_stmt = select(ProfileHashtag).where(
+                                ProfileHashtag.profile_id == profile.id,
+                                ProfileHashtag.hashtag_id == existing_tags[tag_name].id
+                            )
+                            link_result = await session.execute(link_stmt)
+                            if not link_result.scalars().first():
+                                session.add(ProfileHashtag(
+                                    profile_id=profile.id,
+                                    hashtag_id=existing_tags[tag_name].id
+                                ))
 
-                        # 3. Получаем ВСЕ хэштеги (новые и существующие) с их ID
-                        all_hashtags_stmt = select(Hashtag).where(Hashtag.tag.in_(hashtags_list))
-                        all_hashtags_result = await session.execute(all_hashtags_stmt)
-                        all_hashtags = {tag.tag: tag for tag in all_hashtags_result.scalars().all()}
-
-                        # 4. Получаем существующие связи профиля с хэштегами
-                        existing_links_stmt = select(ProfileHashtag).where(
-                            ProfileHashtag.profile_id == profile.id,
-                            ProfileHashtag.hashtag_id.in_([h.id for h in all_hashtags.values()])
-                        )
-                        existing_links_result = await session.execute(existing_links_stmt)
-                        existing_links = {link.hashtag_id for link in existing_links_result.scalars().all()}
-
-                        # 5. Создаем только отсутствующие связи
-                        for hashtag in hashtags_list:
-                            hashtag_id = all_hashtags[hashtag].id
-                            if hashtag_id not in existing_links:
-                                profile_hashtag = ProfileHashtag(profile_id=profile.id, hashtag_id=hashtag_id)
-                                session.add(profile_hashtag)
-
-                        logger.info(f"Хэштеги обработаны для профиля {wallet_number}")
+                        logger.info(f"Обновлено хэштегов: {len(requested_tags)}")
 
                 await session.commit()
 
@@ -820,7 +912,7 @@ async def save_profile_to_db_without_video(
                 return {
                     "message": message,
                     "profile_id": profile.id,
-                    "user_link": profile.user_link  # Возвращаем ссылку (новую или существующую)
+                    "user_link": profile.user_link
                 }
 
             except OperationalError as e:
