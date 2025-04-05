@@ -411,7 +411,7 @@ async def get_profiles_by_hashtag(
     cached_data = await redis_client.get(cache_key)
     if cached_data:
         logger.info(f"Данные найдены в кэше для ключа {cache_key}.")
-        return json.loads(cached_data)  # Декодируем данные из JSON
+        return json.loads(cached_data)
 
     try:
         async with get_db_session_for_worker() as db:
@@ -421,20 +421,20 @@ async def get_profiles_by_hashtag(
                 .join(UserProfiles.profile_hashtags)
                 .join(ProfileHashtag.hashtag)
                 .filter(
-                    Hashtag.tag == normalized_hashtag,  # Точное совпадение
-                    UserProfiles.is_incognito == False,  # Исключаем приватные профили
+                    Hashtag.tag == normalized_hashtag,
+                    UserProfiles.is_incognito == False,
                 )
                 .options(
-                    selectinload(UserProfiles.profile_hashtags)
-                    .selectinload(ProfileHashtag.hashtag)
+                    selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag),
+                    selectinload(UserProfiles.user)  # Добавляем загрузку пользователя
                 )
             )
 
             # Применяем сортировку
             if sort_by == "newest":
-                query = query.order_by(desc(UserProfiles.created_at))  # По новизне
+                query = query.order_by(desc(UserProfiles.created_at))
             elif sort_by == "popularity":
-                query = query.order_by(desc(UserProfiles.followers_count))  # По популярности
+                query = query.order_by(desc(UserProfiles.followers_count))
 
             # Пагинация
             offset = (page - 1) * per_page
@@ -453,8 +453,8 @@ async def get_profiles_by_hashtag(
                 .join(UserProfiles.profile_hashtags)
                 .join(ProfileHashtag.hashtag)
                 .filter(
-                    Hashtag.tag == normalized_hashtag,  # Тот же фильтр
-                    UserProfiles.is_incognito == False,  # Исключаем приватные профили
+                    Hashtag.tag == normalized_hashtag,
+                    UserProfiles.is_incognito == False,
                 )
             )
             total = (await db.execute(total_query)).scalar()
@@ -495,25 +495,32 @@ async def get_profiles_by_hashtag(
                     "is_moderated": profile.is_moderated,
                     "is_incognito": profile.is_incognito,
                     "is_in_mlm": profile.is_in_mlm,
-                    "adress": profile.adress,
+                    "adress": [profile.adress] if profile.adress else [],  # Преобразуем в список
                     "city": profile.city,
                     "coordinates": await process_coordinates_for_response(profile.coordinates),
                     "followers_count": profile.followers_count,
                     "created_at": await datetime_to_str(profile.created_at),
-                    "user_link": profile.user_link,
                     "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
+                    "website_or_social": profile.website_or_social,
+                    "is_admin": profile.is_admin,
+                    "language": profile.language,
+                    "user_link": profile.user_link,
+                    "user": {  # Добавляем информацию о пользователе
+                        "id": profile.user.id,
+                        "wallet_number": profile.user.wallet_number
+                    }
                 }
                 for profile in profiles
             ]
 
             # Формируем ответ
             response_data = {
-                "theme": "Макс, это для тебя корешок ^^",  # Добавляем тему
-                "page_number": page,  # Номер текущей страницы
-                "total_profiles": total,  # Общее количество профилей
-                "total_pages": total_pages,  # Общее количество страниц
-                "message": message,  # Сообщение о пагинации
-                "profiles": profiles_data,  # Список профилей
+                "theme": "Макс, это для тебя корешок ^^",
+                "page_number": page,
+                "total_profiles": total,
+                "total_pages": total_pages,
+                "message": message,
+                "profiles": profiles_data,
             }
 
             # Сохраняем данные в кэш с TTL в 2 часа

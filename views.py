@@ -475,7 +475,6 @@ async def get_profile_by_wallet_number(wallet_number: str):
     """
     try:
         async with get_db_session_for_worker() as db:  # Открываем сессию внутри функции
-
             # Поиск пользователя по номеру кошелька
             query = select(User).filter(User.wallet_number == wallet_number).options(
                 selectinload(User.profile).selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag)
@@ -504,13 +503,20 @@ async def get_profile_by_wallet_number(wallet_number: str):
                 "is_moderated": profile.is_moderated,
                 "is_incognito": profile.is_incognito,
                 "is_in_mlm": profile.is_in_mlm,
-                "adress": profile.adress,
+                "adress": [profile.adress] if profile.adress else [],  # Преобразуем в список
                 "city": profile.city,
-                "coordinates": await process_coordinates_for_response(profile.coordinates),  # Обработка координат
+                "coordinates": await process_coordinates_for_response(profile.coordinates),
                 "followers_count": profile.followers_count,
-                "created_at": await datetime_to_str(profile.created_at),  # Преобразование даты в строку
+                "created_at": await datetime_to_str(profile.created_at),
+                "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
+                "website_or_social": profile.website_or_social,
+                "is_admin": profile.is_admin,
+                "language": profile.language,
                 "user_link": profile.user_link,
-                "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],  # Хэштеги текущего профиля
+                "user": {
+                    "id": user.id,
+                    "wallet_number": user.wallet_number
+                }
             }
 
             logger.info(f"Профиль пользователя с номером кошелька {wallet_number} успешно найден.")
@@ -534,19 +540,22 @@ async def get_profile_by_username(username: str) -> List[dict]:
     :raises HTTPException: Если произошла ошибка.
     """
     try:
-        async with get_db_session_for_worker() as db:  # Открываем сессию внутри функции
-            # Поиск профилей по полному совпадению имени (регистронезависимый поиск)
-            query = select(UserProfiles).filter(func.lower(UserProfiles.name) == func.lower(username)).options(
-                selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag)
+        async with get_db_session_for_worker() as db:
+            # Поиск профилей с загрузкой связанных данных
+            query = select(UserProfiles).filter(
+                func.lower(UserProfiles.name) == func.lower(username)
+            ).options(
+                selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag),
+                selectinload(UserProfiles.user)
             )
             result = await db.execute(query)
             profiles = result.scalars().all()
 
             if not profiles:
-                logger.error(f"Профили с именем '{username}' (регистронезависимо) не найдены.")
+                logger.error(f"Профили с именем '{username}' не найдены.")
                 raise HTTPException(status_code=404, detail="Профили с таким именем не найдены.")
 
-            # Формирование данных профилей для ответа
+            # Формирование данных профилей
             profiles_data = []
             for profile in profiles:
                 profile_data = {
@@ -560,24 +569,34 @@ async def get_profile_by_username(username: str) -> List[dict]:
                     "is_moderated": profile.is_moderated,
                     "is_incognito": profile.is_incognito,
                     "is_in_mlm": profile.is_in_mlm,
-                    "adress": profile.adress,
+                    "adress": [profile.adress] if profile.adress else [],  # Преобразуем в список
                     "city": profile.city,
-                    "coordinates": await process_coordinates_for_response(profile.coordinates),  # Обработка координат
+                    "coordinates": await process_coordinates_for_response(profile.coordinates),
                     "followers_count": profile.followers_count,
-                    "created_at": await datetime_to_str(profile.created_at), # Преобразование даты в строку
+                    "created_at": await datetime_to_str(profile.created_at),
+                    "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],
+                    "website_or_social": profile.website_or_social,
+                    "is_admin": profile.is_admin,
+                    "language": profile.language,
                     "user_link": profile.user_link,
-                    "hashtags": [ph.hashtag.tag for ph in profile.profile_hashtags],  # Хэштеги текущего профиля
+                    "user": {
+                        "id": profile.user.id,
+                        "wallet_number": profile.user.wallet_number
+                    }
                 }
                 profiles_data.append(profile_data)
 
-            logger.info(f"Найдено {len(profiles)} профилей с именем '{username}' (регистронезависимо).")
+            logger.info(f"Найдено {len(profiles)} профилей с именем '{username}'.")
             return profiles_data
 
     except HTTPException as e:
         raise e
     except Exception as e:
-        logger.error(f"Ошибка при получении профилей для имени '{username}': {e}")
-        raise HTTPException(status_code=500, detail="Ошибка сервера при получении профилей.")
+        logger.error(f"Ошибка при поиске профилей по имени '{username}': {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Ошибка сервера при поиске профилей."
+        )
 
 
 # Получение профилей в радиусе N километров
@@ -593,10 +612,13 @@ async def fetch_nearby_profiles(longitude: float, latitude: float, radius: int =
             query = (
                 select(UserProfiles)
                 .where(ST_DWithin(UserProfiles.coordinates, point, radius))
-                .options(selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag))
+                .options(
+                    selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag),
+                    selectinload(UserProfiles.user)
+                )
             )
 
-            logger.debug(f"SQL запрос: {str(query.compile(compile_kwargs={'literal_binds': True}))}")
+            logger.debug(f"SQL запрос: {str(query.compile(compile_kwargs={{'literal_binds': True}}))}")
             result = await db.execute(query)
             profiles = result.scalars().all()
 
@@ -614,7 +636,7 @@ async def fetch_nearby_profiles(longitude: float, latitude: float, radius: int =
 
                     # Преобразуем координаты в объект Shapely
                     try:
-                        geometry = to_shape(profile.coordinates)  # Преобразуем WKB в Shapely
+                        geometry = to_shape(profile.coordinates)
                     except Exception as e:
                         logger.error(f"Ошибка при преобразовании координат профиля {profile.id}: {str(e)}")
                         continue
@@ -622,24 +644,20 @@ async def fetch_nearby_profiles(longitude: float, latitude: float, radius: int =
                     logger.debug(f"Тип геометрии профиля {profile.id}: {geometry.geom_type}")
                     points = []
 
-                    # Обработка геометрии
                     if geometry.geom_type == "MultiPoint":
-                        points = list(geometry.geoms)  # Извлекаем все точки из MultiPoint
+                        points = list(geometry.geoms)
                     elif geometry.geom_type == "Point":
-                        points = [geometry]  # Добавляем единственную точку
+                        points = [geometry]
                     else:
-                        logger.warning(
-                            f"Профиль {profile.id} имеет неподдерживаемый тип геометрии: {geometry.geom_type}")
+                        logger.warning(f"Профиль {profile.id} имеет неподдерживаемый тип геометрии: {geometry.geom_type}")
                         continue
 
                     for point in points:
                         profile_longitude = float(point.x)
                         profile_latitude = float(point.y)
 
-                        # Логируем полученные координаты
                         logger.debug(f"Координаты профиля {profile.id}: {profile_longitude}, {profile_latitude}")
 
-                        # Вычисляем расстояние
                         distance = await calculate_distance(latitude, longitude, profile_latitude, profile_longitude)
                         logger.info(f"Расстояние до точки профиля {profile.id}: {distance / 1000:.2f} км.")
 
@@ -655,7 +673,7 @@ async def fetch_nearby_profiles(longitude: float, latitude: float, radius: int =
                                 "is_moderated": profile.is_moderated,
                                 "is_incognito": profile.is_incognito,
                                 "is_in_mlm": profile.is_in_mlm,
-                                "adress": profile.adress,
+                                "adress": [profile.adress] if profile.adress else [],  # Преобразуем в список
                                 "city": profile.city,
                                 "coordinates": {
                                     "longitude": profile_longitude,
@@ -667,7 +685,11 @@ async def fetch_nearby_profiles(longitude: float, latitude: float, radius: int =
                                 "website_or_social": profile.website_or_social,
                                 "is_admin": profile.is_admin,
                                 "language": profile.language,
-                                "user_link": profile.user_link
+                                "user_link": profile.user_link,
+                                "user": {  # Добавляем информацию о пользователе
+                                    "id": profile.user.id,
+                                    "wallet_number": profile.user.wallet_number
+                                }
                             }
                             profile_list.append(profile_data)
                             break
