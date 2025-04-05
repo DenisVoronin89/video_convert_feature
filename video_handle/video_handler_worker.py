@@ -276,11 +276,16 @@ async def upload_to_s3(processing_data: dict, logger) -> dict:
                             Body=open(local_path, 'rb')
                         )
 
-            # 3. Формируем URL
-            master_playlist = "hls/master.m3u8"  # или другой главный плейлист
+            # 3. Формируем URL (используем реальное имя файла из папки hls)
+            hls_files = os.listdir(hls_dir)
+            master_playlist = next((f for f in hls_files if f.endswith('.m3u8')), None)
+
+            if not master_playlist:
+                raise FileNotFoundError("HLS master playlist not found")
+
             return {
                 "video_url": f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{base_s3_path}/{video_file}",
-                "preview_url": f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{base_s3_path}/{master_playlist}"
+                "preview_url": f"https://{S3_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{base_s3_path}/hls/{master_playlist}"
             }
 
     except Exception as e:
