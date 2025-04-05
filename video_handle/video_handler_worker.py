@@ -12,6 +12,7 @@ import os
 from dotenv import load_dotenv
 
 from fastapi import HTTPException
+from sqlalchemy import delete
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -322,10 +323,17 @@ async def upload_to_s3(processing_data: dict, logger) -> dict:
 
 # Логика удаления старых файлов с облака
 async def delete_video_folder(video_url: str, logger) -> bool:
-    """Удаляет все файлы по префиксу с детальным логгированием"""
+    """Удаляет все файлы по префиксу, кроме папок с 'mock' в названии"""
     try:
         parsed = urllib.parse.urlparse(video_url)
-        prefix = '/'.join(parsed.path.lstrip('/').split('/')[:-1]) + '/'
+        path_parts = parsed.path.lstrip('/').split('/')
+
+        # Проверяем, содержит ли путь слово 'mock'
+        if any('mock' in part.lower() for part in path_parts):
+            logger.info(f"Обнаружена папка 'mock' - удаление пропущено: {video_url}")
+            return False
+
+        prefix = '/'.join(path_parts[:-1]) + '/'
 
         logger.info(f"Начинаем удаление по префиксу: {prefix}")
 
@@ -386,32 +394,42 @@ async def delete_old_media_files(
         logger
 ):
     """
-    Удаление старых медиафайлов (логотипа и постера) из локальных папок
+    Удаление старых медиафайлов, кроме файлов с 'mock' в названии
 
-    :param old_logo_url: Локальный путь к старому логотипу
-    :param old_poster_url: Локальный путь к старому постеру
+    :param old_logo_url: Путь к старому логотипу
+    :param old_poster_url: Путь к старому постеру
     :param logger: Логгер для записи событий
     """
     try:
-        if old_logo_url:
+        # Функция проверки на mock-файлы
+        def is_mock_file(path: str) -> bool:
+            return path and 'mock' in path.lower()
+
+        # Обработка логотипа
+        if old_logo_url and not is_mock_file(old_logo_url):
             logo_path = Path(old_logo_url)
             if logo_path.exists():
                 os.unlink(logo_path)
                 logger.info(f"Локальный файл логотипа удален: {logo_path}")
             else:
                 logger.warning(f"Файл логотипа не найден: {logo_path}")
+        elif old_logo_url:
+            logger.info(f"Обнаружен mock-логотип, удаление пропущено: {old_logo_url}")
 
-        if old_poster_url:
+        # Обработка постера
+        if old_poster_url and not is_mock_file(old_poster_url):
             poster_path = Path(old_poster_url)
             if poster_path.exists():
                 os.unlink(poster_path)
                 logger.info(f"Локальный файл постера удален: {poster_path}")
             else:
                 logger.warning(f"Файл постера не найден: {poster_path}")
+        elif old_poster_url:
+            logger.info(f"Обнаружен mock-постер, удаление пропущено: {old_poster_url}")
 
     except Exception as e:
-        logger.error(f"Ошибка при удалении локальных файлов: {e}")
-        # Не прерываем выполнение, если не удалось удалить файлы
+        logger.error(f"Ошибка при удалении локальных файлов: {e}", exc_info=True)
+        # Не прерываем выполнение при ошибках
 
 
 async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_url: str, preview_url: str, poster_path: str, user_logo_url: str, wallet_number: str, logger):
@@ -533,19 +551,19 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                 logger.info(f"Профиль обновлен, уникальная ссылка сохранена: {current_unique_link}")
 
             # 5. Полная синхронизация хэштегов
-            if form_data.get("hashtags"):
-                # Получаем текущие хэштеги профиля
+            if "hashtags" in form_data:
+                # Получаем ВСЕ текущие хэштеги профиля
                 current_hashtags_stmt = select(Hashtag).join(ProfileHashtag).where(
                     ProfileHashtag.profile_id == profile.id)
                 current_hashtags_result = await session.execute(current_hashtags_stmt)
                 current_hashtags = {tag.tag: tag for tag in current_hashtags_result.scalars().all()}
 
-                # Нормализуем новые хэштеги
-                new_tags = {tag.strip().lower().lstrip("#") for tag in form_data["hashtags"] if tag.strip()}
+                # Получаем хэштеги из формы (нормализованные)
+                form_hashtags = {tag.strip().lower().lstrip("#") for tag in form_data["hashtags"] if tag.strip()}
 
-                # Удаляем отсутствующие хэштеги
+                # Удаление связей с хэштегами которых нет в форме
                 for tag_name, tag_obj in current_hashtags.items():
-                    if tag_name not in new_tags:
+                    if tag_name not in form_hashtags:
                         delete_stmt = delete(ProfileHashtag).where(
                             ProfileHashtag.profile_id == profile.id,
                             ProfileHashtag.hashtag_id == tag_obj.id
@@ -553,31 +571,37 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                         await session.execute(delete_stmt)
                         logger.debug(f"Удалена связь с хэштегом: {tag_name}")
 
-                # Добавляем новые хэштеги
-                existing_tags_stmt = select(Hashtag).where(Hashtag.tag.in_(new_tags))
+                # Получаем существующие хэштеги из БД (для всех тегов формы)
+                existing_tags_stmt = select(Hashtag).where(Hashtag.tag.in_(form_hashtags))
                 existing_tags_result = await session.execute(existing_tags_stmt)
                 existing_tags = {tag.tag: tag for tag in existing_tags_result.scalars().all()}
 
-                for tag_name in new_tags:
+                # Добавляем новые хэштеги и связи
+                for tag_name in form_hashtags:
+                    # Если хэштега нет в БД - создаем
                     if tag_name not in existing_tags:
                         new_hashtag = Hashtag(tag=tag_name)
                         session.add(new_hashtag)
-                        await session.flush()
+                        await session.flush()  # Получаем ID нового хэштега
                         existing_tags[tag_name] = new_hashtag
 
-                    # Проверяем и создаем связь при необходимости
-                    link_stmt = select(ProfileHashtag).where(
-                        ProfileHashtag.profile_id == profile.id,
-                        ProfileHashtag.hashtag_id == existing_tags[tag_name].id
+                    # Проверяем, есть ли уже связь
+                    link_exists = await session.execute(
+                        select(ProfileHashtag).where(
+                            ProfileHashtag.profile_id == profile.id,
+                            ProfileHashtag.hashtag_id == existing_tags[tag_name].id
+                        ).exists().select()
                     )
-                    link_result = await session.execute(link_stmt)
-                    if not link_result.scalars().first():
+                    link_exists = link_exists.scalar()
+
+                    # Если связи нет - создаем
+                    if not link_exists:
                         session.add(ProfileHashtag(
                             profile_id=profile.id,
                             hashtag_id=existing_tags[tag_name].id
                         ))
 
-                logger.info(f"Обновлено хэштегов: {len(new_tags)}")
+                logger.info(f"Хэштеги синхронизированы. Оставлено: {len(form_hashtags)}")
 
         await session.commit()
         logger.info(f"Данные успешно сохранены для кошелька {wallet_number}")

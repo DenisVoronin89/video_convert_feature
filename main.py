@@ -1062,4 +1062,3 @@ async def fill_database(session: AsyncSession = Depends(get_db_session)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-

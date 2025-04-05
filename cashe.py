@@ -5,6 +5,7 @@
 import random
 import os
 from datetime import timedelta
+import secrets
 import json
 import hashlib
 from math import ceil
@@ -13,7 +14,7 @@ import redis.asyncio as redis
 from pydantic import HttpUrl
 from redis.exceptions import RedisError
 from typing import Optional
-from sqlalchemy import func, desc, or_, update
+from sqlalchemy import func, desc, or_, update, delete, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import OperationalError, IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload, subqueryload, selectinload
@@ -30,6 +31,7 @@ from models import UserProfiles, Favorite, Hashtag, ProfileHashtag, User
 from utils import datetime_to_str, process_coordinates_for_response, parse_coordinates, generate_unique_link, move_image_to_user_logo
 from schemas import serialize_form_data, FormData
 from video_handle.video_handler_worker import delete_video_folder, delete_old_media_files
+from mock_urls import mock_options
 
 
 logger = get_logger()
@@ -47,6 +49,10 @@ S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
 AWS_REGION = os.getenv("AWS_REGION")
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+
+
+
+
 
 
 # ЛОГИКА РАБОТЫ С ИЗБРАННЫМ
@@ -646,6 +652,13 @@ async def save_profile_to_db_without_video(
     :param delete_video: Флаг, указывающий, нужно ли удалять видео и превью.
     """
     try:
+        # Импортируем мок-ссылки
+        from mock_urls import mock_options
+        import random
+
+        # Выбираем случайный вариант мок-ссылок
+        mock_video, mock_preview, mock_poster = secrets.choice(mock_options)
+
         # Преобразование данных формы в словарь
         form_data_dict = form_data.dict()
 
@@ -660,6 +673,7 @@ async def save_profile_to_db_without_video(
         # Лог полученных данных
         logger.info(f"Получены данные профиля: {form_data_dict}")
         logger.info(f"Получены данные о изображении: {image_data}")
+        logger.info(f"Используем мок-ссылки: video={mock_video}, preview={mock_preview}, poster={mock_poster}")
 
         # Получаем координаты из form_data_dict
         coordinates = form_data_dict.get("coordinates")
@@ -786,6 +800,9 @@ async def save_profile_to_db_without_video(
                     profile.is_in_mlm = form_data_dict.get("is_in_mlm")
                     profile.is_incognito = form_data_dict.get("is_incognito", False)
                     profile.language = form_data_dict.get("language")
+                    profile.video_url = mock_video
+                    profile.preview_url = mock_preview
+                    profile.poster_url = mock_poster
 
                     if new_user_image:
                         profile.user_logo_url = user_logo_path
@@ -802,28 +819,32 @@ async def save_profile_to_db_without_video(
                         old_preview_url = profile.preview_url
                         old_poster_url = profile.poster_url
 
-                        profile.video_url = None
-                        profile.preview_url = None
-                        profile.poster_url = None
-
-                        if old_video_url:
+                        # Удаляем старые файлы, если они не моки
+                        if old_video_url and not old_video_url.startswith("https://stt-market-videos.s3.eu-north-1.amazonaws.com/videos/mock_video_"):
                             try:
                                 await delete_video_folder(old_video_url, logger)
                                 logger.info(f"Видео удалено из облака: {old_video_url}")
                             except Exception as e:
                                 logger.error(f"Ошибка удаления видео: {e}")
-                        if old_preview_url:
+
+                        if old_preview_url and not old_preview_url.startswith("https://stt-market-videos.s3.eu-north-1.amazonaws.com/videos/mock_video_"):
                             try:
                                 await delete_video_folder(old_preview_url, logger)
                                 logger.info(f"Превью удалено из облака: {old_preview_url}")
                             except Exception as e:
                                 logger.error(f"Ошибка удаления превью: {e}")
-                        if old_poster_url:
+
+                        if old_poster_url and not old_poster_url.startswith("https://stt-market-videos.s3.eu-north-1.amazonaws.com/videos/mock_video_"):
                             try:
-                                await delete_video_folder(old_poster_url, logger)
+                                await delete_old_media_files(None, old_poster_url, logger)
                                 logger.info(f"Постер удален из облака: {old_poster_url}")
                             except Exception as e:
                                 logger.error(f"Ошибка удаления постера: {e}")
+
+                        # В любом случае ставим новые мок-ссылки
+                        profile.video_url = mock_video
+                        profile.preview_url = mock_preview
+                        profile.poster_url = mock_poster
 
                     # Восстанавливаем неизменяемые поля
                     profile.user_link = current_user_link
@@ -852,9 +873,9 @@ async def save_profile_to_db_without_video(
                         language=form_data_dict.get("language"),
                         user_logo_url=user_logo_path if new_user_image else None,
                         user_link=user_link,
-                        video_url=None,
-                        preview_url=None,
-                        poster_url=None
+                        video_url=mock_video,
+                        preview_url=mock_preview,
+                        poster_url=mock_poster
                     )
 
                     user.is_profile_created = True
@@ -866,51 +887,61 @@ async def save_profile_to_db_without_video(
 
                 # Работа с хэштегами
                 if "hashtags" in form_data_dict:
-                    hashtags_input = form_data_dict["hashtags"]
-                    requested_tags = {tag.strip().lower().lstrip("#") for tag in hashtags_input if tag.strip()}
+                    # Получаем текущие хэштеги профиля
+                    current_hashtags_stmt = select(Hashtag).join(ProfileHashtag).where(
+                        ProfileHashtag.profile_id == profile.id)
+                    current_hashtags_result = await session.execute(current_hashtags_stmt)
+                    current_hashtags = {tag.tag: tag for tag in current_hashtags_result.scalars().all()}
 
-                    if requested_tags:
-                        # 1. Получаем все текущие хэштеги профиля
-                        current_hashtags_stmt = select(Hashtag).join(ProfileHashtag).where(
-                            ProfileHashtag.profile_id == profile.id)
-                        current_hashtags_result = await session.execute(current_hashtags_stmt)
-                        current_hashtags = {tag.tag: tag for tag in current_hashtags_result.scalars().all()}
+                    # Нормализуем новые хэштеги из формы
+                    requested_tags = {tag.strip().lower().lstrip("#") for tag in form_data_dict["hashtags"] if tag.strip()}
 
-                        # 2. Удаляем связи с хэштегами, которых нет в запросе
-                        for tag_name, tag_obj in current_hashtags.items():
-                            if tag_name not in requested_tags:
-                                delete_stmt = delete(ProfileHashtag).where(
+                    # 1. Удаляем связи с хэштегами, которых нет в форме
+                    for tag_name, tag_obj in current_hashtags.items():
+                        if tag_name not in requested_tags:
+                            # Удаляем только связь, сам хэштег остается в базе
+                            delete_stmt = delete(ProfileHashtag).where(
+                                and_(
                                     ProfileHashtag.profile_id == profile.id,
                                     ProfileHashtag.hashtag_id == tag_obj.id
                                 )
-                                await session.execute(delete_stmt)
-                                logger.debug(f"Удалена связь с хэштегом: {tag_name}")
-
-                        # 3. Добавляем новые хэштеги
-                        existing_tags_stmt = select(Hashtag).where(Hashtag.tag.in_(requested_tags))
-                        existing_tags_result = await session.execute(existing_tags_stmt)
-                        existing_tags = {tag.tag: tag for tag in existing_tags_result.scalars().all()}
-
-                        for tag_name in requested_tags:
-                            if tag_name not in existing_tags:
-                                new_hashtag = Hashtag(tag=tag_name)
-                                session.add(new_hashtag)
-                                await session.flush()
-                                existing_tags[tag_name] = new_hashtag
-
-                            # Проверяем и создаем связь при необходимости
-                            link_stmt = select(ProfileHashtag).where(
-                                ProfileHashtag.profile_id == profile.id,
-                                ProfileHashtag.hashtag_id == existing_tags[tag_name].id
                             )
-                            link_result = await session.execute(link_stmt)
-                            if not link_result.scalars().first():
-                                session.add(ProfileHashtag(
-                                    profile_id=profile.id,
-                                    hashtag_id=existing_tags[tag_name].id
-                                ))
+                            await session.execute(delete_stmt)
+                            logger.debug(f"Удалена связь профиля с хэштегом: {tag_name}")
 
-                        logger.info(f"Обновлено хэштегов: {len(requested_tags)}")
+                    # 2. Добавляем новые хэштеги и связи
+                    # Получаем существующие хэштеги для запрошенных тегов
+                    existing_tags_stmt = select(Hashtag).where(Hashtag.tag.in_(requested_tags))
+                    existing_tags_result = await session.execute(existing_tags_stmt)
+                    existing_tags = {tag.tag: tag for tag in existing_tags_result.scalars().all()}
+
+                    for tag_name in requested_tags:
+                        # Если хэштега нет в базе - создаем
+                        if tag_name not in existing_tags:
+                            new_hashtag = Hashtag(tag=tag_name)
+                            session.add(new_hashtag)
+                            await session.flush()  # Получаем ID
+                            existing_tags[tag_name] = new_hashtag
+
+                        # Проверяем существование связи
+                        link_exists = await session.execute(
+                            select(ProfileHashtag).where(
+                                and_(
+                                    ProfileHashtag.profile_id == profile.id,
+                                    ProfileHashtag.hashtag_id == existing_tags[tag_name].id
+                                )
+                            ).exists().select()
+                        )
+                        link_exists = link_exists.scalar()
+
+                        # Если связи нет - создаем
+                        if not link_exists:
+                            session.add(ProfileHashtag(
+                                profile_id=profile.id,
+                                hashtag_id=existing_tags[tag_name].id
+                            ))
+
+                    logger.info(f"Хэштеги обновлены. Актуальных хэштегов: {len(requested_tags)}")
 
                 await session.commit()
 
