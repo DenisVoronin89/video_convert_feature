@@ -1,0 +1,72 @@
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgis
+    environment:
+#      POSTGRES_USER: admin
+#      POSTGRES_PASSWORD: admin1224
+#      POSTGRES_DB: stt_video_app
+      POSTGRES_USER: stt_developer
+      POSTGRES_PASSWORD: Tvjhy65767y98
+      POSTGRES_DB: stt_market_test_db
+    networks:
+      - backend
+    volumes:
+      - ./init_postgis.sql:/docker-entrypoint-initdb.d/init_postgis.sql
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"  # Пробрасываем порт 5432 наружу (для миграций, table plus)
+
+
+  redis:
+    image: redis:latest
+    networks:
+      - backend
+
+
+  video_handler_subscriber:
+    build:
+      context: .
+      dockerfile: Dockerfile.subscriber
+    platform: linux/arm64
+    command: >
+      bash -c "export PYTHONPATH=$(pwd) && python -m video_handle.video_handler_subscriber"
+    networks:
+      - backend
+    volumes:
+      - ./video_service.log:/app/video_service.log  # Добавить лог-файл
+      - ./video_temp:/app/video_temp  # Общая папка для временных видео
+      - ./user_logo:/app/user_logo  # Общая папка для логотипов пользователей
+      - ./image_temp:/app/image_temp  # Общая папка для временных изображений
+      - ./output_preview:/app/output_preview  # Общая папка для выводов превью
+      - ./output_video:/app/output_video  # Общая папка для выводов видео
+      - ./user_video_posters:/app/user_video_posters # Общая папка для постера видео
+    environment:
+      S3_ENDPOINT:
+
+
+  fastapi_app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    ports:
+      - "8000:8000"
+    networks:
+      - backend
+    volumes:
+      - ./video_service.log:/app/video_service.log
+      - ./video_temp:/app/video_temp
+      - ./user_logo:/app/user_logo
+      - ./image_temp:/app/image_temp
+      - ./output_preview:/app/output_preview
+      - ./output_video:/app/output_video
+      - ./user_video_posters:/app/user_video_posters
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  postgres_data:
