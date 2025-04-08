@@ -4,6 +4,7 @@ import time
 import ffmpeg
 from pathlib import Path
 import aiofiles
+import asyncio
 import io
 import urllib.parse
 from uuid import uuid4
@@ -394,44 +395,56 @@ async def delete_old_media_files(
         logger
 ):
     """
-    Удаление старых медиафайлов, кроме файлов с 'mock' в названии
-
-    :param old_logo_url: Путь к старому логотипу
-    :param old_poster_url: Путь к старому постеру
-    :param logger: Логгер для записи событий
+    Удаление файлов ТОЛЬКО в хостовых путях (./user_logo и др.)
     """
+
+    def _delete_file(file_path: str, file_type: str):
+        """Удаление файла с преобразованием контейнерного пути в хостовый"""
+        try:
+            if not file_path or 'mock' in file_path.lower():
+                return
+
+            # Логируем исходный путь
+            logger.debug(f"Исходный путь {file_type}: {file_path}")
+
+            # Преобразуем различные форматы путей в хостовый
+            if file_path.startswith('/app/'):
+                host_path = file_path.replace('/app/', './')
+            elif file_path.startswith('/user_logo/'):
+                host_path = file_path.replace('/user_logo/', './user_logo/')
+            elif file_path.startswith('/'):
+                host_path = '.' + file_path
+            elif file_path.startswith('./'):
+                host_path = file_path
+            else:
+                host_path = './' + file_path
+
+            path = Path(host_path)
+
+            if not path.exists():
+                logger.warning(f"Файл {file_type} не найден на хосте: {path}")
+                return
+
+            path.unlink()
+            logger.info(f"Файл {file_type} удалён с хоста: {path}")
+
+        except Exception as e:
+            logger.error(f"Ошибка удаления {file_type}: {str(e)}", exc_info=True)
+
     try:
-        # Функция проверки на mock-файлы
-        def is_mock_file(path: str) -> bool:
-            return path and 'mock' in path.lower()
+        loop = asyncio.get_running_loop()
 
-        # Обработка логотипа
-        if old_logo_url and not is_mock_file(old_logo_url):
-            logo_path = Path(old_logo_url)
-            if logo_path.exists():
-                os.unlink(logo_path)
-                logger.info(f"Локальный файл логотипа удален: {logo_path}")
-            else:
-                logger.warning(f"Файл логотипа не найден: {logo_path}")
-        elif old_logo_url:
-            logger.info(f"Обнаружен mock-логотип, удаление пропущено: {old_logo_url}")
+        if old_logo_url:
+            await loop.run_in_executor(None, _delete_file, old_logo_url, "логотип")
 
-        # Обработка постера
-        if old_poster_url and not is_mock_file(old_poster_url):
-            poster_path = Path(old_poster_url)
-            if poster_path.exists():
-                os.unlink(poster_path)
-                logger.info(f"Локальный файл постера удален: {poster_path}")
-            else:
-                logger.warning(f"Файл постера не найден: {poster_path}")
-        elif old_poster_url:
-            logger.info(f"Обнаружен mock-постер, удаление пропущено: {old_poster_url}")
+        if old_poster_url:
+            await loop.run_in_executor(None, _delete_file, old_poster_url, "постер")
 
     except Exception as e:
-        logger.error(f"Ошибка при удалении локальных файлов: {e}", exc_info=True)
-        # Не прерываем выполнение при ошибках
+        logger.error(f"Ошибка обработчика: {str(e)}", exc_info=True)
 
 
+# Логика сохранения профиля в БД с видео TODO объединить с эндпоинтом сохранения без видео, с микросервиса чисто ссылки возвращать и все (через Редиску)
 async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_url: str, preview_url: str, poster_path: str, user_logo_url: str, wallet_number: str, logger):
     """
     Сохранение или обновление данных пользователя, логотипа и хэштегов в БД.

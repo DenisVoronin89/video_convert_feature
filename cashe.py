@@ -800,9 +800,13 @@ async def save_profile_to_db_without_video(
                     profile.is_in_mlm = form_data_dict.get("is_in_mlm")
                     profile.is_incognito = form_data_dict.get("is_incognito", False)
                     profile.language = form_data_dict.get("language")
-                    profile.video_url = mock_video
-                    profile.preview_url = mock_preview
-                    profile.poster_url = mock_poster
+
+                    # Только если это новый профиль ИЛИ запрошено удаление видео - ставим моки
+                    # Иначе - оставляем существующие ссылки без изменений
+                    if is_new_profile or delete_video:
+                        profile.video_url = mock_video
+                        profile.preview_url = mock_preview
+                        profile.poster_url = mock_poster
 
                     if new_user_image:
                         profile.user_logo_url = user_logo_path
@@ -840,11 +844,6 @@ async def save_profile_to_db_without_video(
                                 logger.info(f"Постер удален из облака: {old_poster_url}")
                             except Exception as e:
                                 logger.error(f"Ошибка удаления постера: {e}")
-
-                        # В любом случае ставим новые мок-ссылки
-                        profile.video_url = mock_video
-                        profile.preview_url = mock_preview
-                        profile.poster_url = mock_poster
 
                     # Восстанавливаем неизменяемые поля
                     profile.user_link = current_user_link

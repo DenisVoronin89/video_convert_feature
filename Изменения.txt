@@ -134,10 +134,10 @@ MIME-тип или расширение, но на самом деле явля�
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "/user_logo/6be08dca-5609-4ca2-b608-a556bf4a2828_e059b312-d707-4d60-a3ec-29568afe292b_молекула_preview_rev_1.png"
+    "image_path": "./image_temp/a3ecc894-ccc9-4c74-86c6-6a673ef011eb_c66f50f4ecb6aaf160ae3bd590effe68.jpg"
   },
   "video_data": {
-    "video_path": "./video_temp/741a23ce-0dd7-4739-9b25-ea270d3ebbec_cat_cat.mp4"
+    "video_path": "./video_temp/4e11fce4-74c7-45aa-9835-734478eff4ff_cat_cat.mp4"
   }
 }
 
@@ -175,7 +175,7 @@ MIME-тип или расширение, но на самом деле явля�
     "website_or_social": "https://twitter.com/johndoe"
   },
   "image_data": {
-    "image_path": "/user_logo/6be08dca-5609-4ca2-b608-a556bf4a2828_e059b312-d707-4d60-a3ec-29568afe292b_молекула_preview_rev_1.png"
+    "image_path": "/user_logo/5b1f408e-0153-43ca-830f-3c1c709cd396_c4860b9c-3c64-4bd9-8846-c3e4cd7fc49f_Снимок_экрана_2025-03-06_в_00.51.12.png"
   }
 }
 
