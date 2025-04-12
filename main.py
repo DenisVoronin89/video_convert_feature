@@ -116,20 +116,20 @@ async def start_scheduler():
     # Получаем redis_client из состояния приложения
     redis_client = app.state.redis_client
 
-    # Задача, которая выполняется каждые 5 минут (обновление профилей в Redis)
+    # Задача, которая выполняется каждые 3 минут (обновление профилей в Redis)
     scheduler.add_job(
         fetch_and_cache_profiles,  # Функция
-        IntervalTrigger(minutes=5),  # Триггер (интервал 5 минут)
+        IntervalTrigger(minutes=3),  # Триггер (интервал 3 минут)
         args=[redis_client]  # Аргументы для функции
     )
-    logger.info("Задача fetch_and_cache_profiles добавлена в расписание (каждые 8 минут).")
+    logger.info("Задача fetch_and_cache_profiles добавлена в расписание (каждые 5 минут).")
 
     # Задача, которая выполняется каждые 8 минут (синхронизация данных из Redis в БД)
     scheduler.add_job(
         sync_data_to_db,  # Функция
-        IntervalTrigger(minutes=3),  # Триггер (интервал 8 минут)
+        IntervalTrigger(minutes=8),  # Триггер (интервал 8 минут)
     )
-    logger.info("Задача sync_data_to_db добавлена в расписание (каждые 8 минут).")
+    logger.info("Задача sync_data_to_db добавлена в расписание (каждые 5 минут).")
 
     # Очистка логов каждые 5 минут
     scheduler.add_job(
@@ -295,6 +295,7 @@ async def login(
             # Формируем ответ вручную
             response_data = {
                 "id": user.id,
+                "profile_creation_status": user.profile_creation_status,
                 "profile": profile_data,
                 "favorites": favorites,  # Теперь это список профилей с полной информацией
                 "tokens": tokens,

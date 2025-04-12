@@ -14,6 +14,7 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     wallet_number = Column(String(150), unique=True, nullable=False)
     is_profile_created = Column(Boolean, default=False, nullable=False)
+    profile_creation_status = Column(String(50), default=None, nullable=True)
 
     __table_args__ = (
         Index('ix_user_wallet_number', 'wallet_number'),

@@ -31,6 +31,7 @@ from models import UserProfiles, Favorite, Hashtag, ProfileHashtag, User
 from utils import datetime_to_str, process_coordinates_for_response, parse_coordinates, generate_unique_link, move_image_to_user_logo
 from schemas import serialize_form_data, FormData
 from video_handle.video_handler_worker import delete_video_folder, delete_old_media_files
+from video_handle.video_handler_subscriber import set_profile_status
 from mock_urls import mock_options
 
 
@@ -850,6 +851,9 @@ async def save_profile_to_db_without_video(
                     profile.is_admin = current_is_admin
                     profile.is_moderated = current_is_moderated
 
+                    # Устанавливаем статус строкой
+                    user.profile_creation_status = "True"
+
                     session.add(profile)
                     logger.info(f"Обновлен профиль пользователя {user.id}, user_link сохранен: {current_user_link}")
                 else:
@@ -878,6 +882,7 @@ async def save_profile_to_db_without_video(
                     )
 
                     user.is_profile_created = True
+                    user.profile_creation_status = "True"
                     session.add(new_profile)
                     await session.flush()
                     profile = new_profile
@@ -952,36 +957,51 @@ async def save_profile_to_db_without_video(
                     "user_link": profile.user_link
                 }
 
-            except OperationalError as e:
-                logger.warning(f"Ошибка базы данных (возможно, конфликт транзакций): {str(e)}")
-                await session.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Ошибка базы данных. Попробуйте позже."
-                )
-
-            except IntegrityError as e:
-                logger.error(f"Ошибка целостности данных: {str(e)}")
-                await session.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Ошибка целостности данных. Проверьте введенные данные."
-                )
-
             except Exception as e:
-                logger.error(f"Непредвиденная ошибка: {str(e)}")
-                await session.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Непредвиденная ошибка. Попробуйте позже."
+                # При ошибке в основной сессии
+                try:
+                    await session.execute(
+                        update(User)
+                        .where(User.wallet_number == wallet_number)
+                        .values(profile_creation_status="false")
+                    )
+                    await session.commit()
+                except:
+                    await session.rollback()
+                raise
+
+    except HTTPException as http_error:
+        # Для HTTP ошибок создаем новую сессию
+        try:
+            async with get_db_session_for_worker() as temp_session:
+                await temp_session.execute(
+                    update(User)
+                    .where(User.wallet_number == wallet_number)
+                    .values(profile_creation_status="false")
                 )
+                await temp_session.commit()
+        except:
+            pass
+        raise http_error
 
     except Exception as e:
-        logger.error(f"Ошибка в функции save_profile_to_db_without_video: {str(e)}")
+        # Для всех остальных ошибок
+        try:
+            if wallet_number:
+                async with get_db_session_for_worker() as temp_session:
+                    await temp_session.execute(
+                        update(User)
+                        .where(User.wallet_number == wallet_number)
+                        .values(profile_creation_status="false")
+                    )
+                    await temp_session.commit()
+        except:
+            pass
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Непредвиденная ошибка. Попробуйте позже."
+            detail="Внутренняя ошибка сервера"
         )
+
 
 
 # ОТДАЧА ВСЕХ ПРОФИЛЕЙ И ПАГИНАЦИЯ

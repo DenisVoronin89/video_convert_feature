@@ -7,7 +7,7 @@ import json
 import asyncio
 import os
 from datetime import datetime, timedelta
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.future import select
 from database import get_db_session_for_worker
 from redis.asyncio import Redis
 from video_handle.video_handler_worker import (
@@ -16,11 +16,10 @@ from video_handle.video_handler_worker import (
     save_profile_to_db,
     check_s3_connection,
     create_hls_playlist,
-    extract_frame,
-    delete_video_folder
+    extract_frame
 )
 from logging_config import get_logger
-
+from models import User
 
 logger = get_logger()
 
@@ -28,18 +27,40 @@ CHANNEL = "video_tasks"  # Канал для видео задач
 REDIS_HOST = "redis"
 
 
+# Функция для установки статуса обработки и сохранения данных о пользователе
+async def set_profile_status(wallet_number: str, status: str, logger):
+    """Устанавливает статус профиля, открывая сессию только на время операции"""
+    try:
+        async with get_db_session_for_worker() as session:
+            stmt = select(User).where(User.wallet_number == wallet_number)
+            result = await session.execute(stmt)
+            user = result.scalars().first()
+
+            if user:
+                user.profile_creation_status = status
+                session.add(user)
+                await session.commit()
+                logger.info(f"Статус профиля для {wallet_number} установлен в '{status}'")
+    except Exception as e:
+        logger.error(f"Ошибка при установке статуса профиля: {str(e)}")
+        raise
+
+
 # Функция обработки задач на микросервисе
 async def handle_task(task_data):
     """Обработка всех задач последовательно с генерацией HLS"""
     logger.info(f"Получена задача для обработки: {task_data}")
+    wallet_hash = task_data["wallet_number"]
 
     try:
+        # Устанавливаем статус "await" перед началом обработки
+        await set_profile_status(wallet_hash, "await", logger)
+
         # Извлечение входных данных
         input_video = task_data["input_path"]
         output_path = task_data["output_path"]["path"]
         form_data = task_data["form_data"]
         user_logo = task_data["user_logo_url"]
-        wallet_hash = task_data["wallet_number"]
 
         # 1. Конвертация видео
         logger.info(f"Конвертация видео: {input_video}")
@@ -98,7 +119,12 @@ async def handle_task(task_data):
         logger.info("Профиль успешно сохранен")
 
     except Exception as e:
-        logger.error(f"Ошибка обработки задачи: {str(e)}", exc_info=True)
+        logger.error(f"ОШИБКА: {e}")
+        # Устанавливаем статус "false" при ошибке
+        try:
+            await set_profile_status(wallet_hash, "false", logger)
+        except Exception as status_error:
+            logger.error(f"Не удалось установить статус ошибки: {status_error}")
         raise RuntimeError(f"Ошибка обработки задачи: {str(e)}")
 
     finally:

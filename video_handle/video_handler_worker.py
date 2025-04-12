@@ -450,42 +450,48 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
     Сохранение или обновление данных пользователя, логотипа и хэштегов в БД.
     """
     try:
+        logger.debug(f"[LOG] Начало сохранения профиля для кошелька: {wallet_number}")
         async with session.begin():
             # 1. Получаем пользователя по кошельку
+            logger.debug(f"[LOG] Выполняется запрос пользователя по кошельку: {wallet_number}")
             stmt = select(User).where(User.wallet_number == wallet_number)
             result = await session.execute(stmt)
             user = result.scalars().first()
 
             if not user:
+                logger.warning(f"[LOG] Пользователь с кошельком {wallet_number} не найден")
                 raise HTTPException(status_code=400, detail="Пользователь с данным кошельком не найден.")
 
-            # 2. Удаление старых файлов из облака (если профиль уже существует)
+            # 2. Удаление старых файлов из облака
+            logger.debug(f"[LOG] Проверка существующего профиля пользователя ID {user.id}")
             existing_profile_stmt = select(UserProfiles).where(UserProfiles.user_id == user.id)
             existing_profile_result = await session.execute(existing_profile_stmt)
             existing_profile = existing_profile_result.scalars().first()
 
             if existing_profile and existing_profile.video_url:
+                logger.debug(f"[LOG] Найден старый профиль, попытка удалить видео из облака")
                 try:
                     await delete_video_folder(existing_profile.video_url, logger)
                     logger.info(f"Старые файлы удалены из облака для {wallet_number}")
                 except Exception as e:
                     logger.error(f"Ошибка удаления старых файлов: {e}")
-                    # Не прерываем выполнение, если не удалось удалить файлы
 
-            # 3. Получаем координаты из form_data
+            # 3. Получаем координаты
             coordinates = form_data.get("coordinates")
+            logger.debug(f"[LOG] Получены координаты: {coordinates}")
 
-            # Преобразуем координаты в строку WKT, если они есть
             multi_point_wkt = None
             if coordinates:
                 points = [Point(coord[0], coord[1]) for coord in coordinates]
                 multi_point = MultiPoint(points)
                 multi_point_wkt = str(multi_point)
+                logger.debug(f"[LOG] Преобразованные координаты в WKT: {multi_point_wkt}")
 
-            # 4. Проверка флага is_profile_created
+            # 4. Проверка профиля
             if not user.is_profile_created:
-                # Генерируем уникальную ссылку только при создании нового профиля
+                logger.debug(f"[LOG] Профиль пользователя еще не создан — создаем новый")
                 unique_link = await generate_unique_link()
+                logger.debug(f"[LOG] Сгенерирована уникальная ссылка: {unique_link}")
 
                 new_profile = UserProfiles(
                     name=form_data["name"],
@@ -504,27 +510,29 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                     is_in_mlm=form_data["is_in_mlm"],
                     user_id=user.id,
                     language=form_data["language"],
-                    user_link=unique_link  # Добавляем новую ссылку
+                    user_link=unique_link
                 )
 
                 user.is_profile_created = True
+                user.profile_creation_status = "True"
                 session.add(new_profile)
                 await session.flush()
                 profile = new_profile
 
                 logger.info(f"Создан новый профиль с уникальной ссылкой: {unique_link}")
             else:
-                # Если профиль уже существует - получаем его текущие данные
+                logger.debug(f"[LOG] Профиль уже существует — выполняется обновление")
                 stmt = select(UserProfiles).where(UserProfiles.user_id == user.id)
                 result = await session.execute(stmt)
                 profile = result.scalars().first()
 
-                # Проверяем, изменились ли медиафайлы
                 old_logo_url = profile.user_logo_url
                 old_poster_url = profile.poster_url
+                logger.debug(f"[LOG] Старые логотип и постер: {old_logo_url}, {old_poster_url}")
 
                 if (old_logo_url and old_logo_url != user_logo_url) or \
                         (old_poster_url and old_poster_url != poster_path):
+                    logger.debug(f"[LOG] Найдены изменения в медиафайлах, удаляем старые")
                     try:
                         await delete_old_media_files(
                             old_logo_url if old_logo_url != user_logo_url else None,
@@ -533,14 +541,11 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                         )
                     except Exception as e:
                         logger.error(f"Ошибка при удалении старых медиафайлов: {e}")
-                        # Продолжаем выполнение даже если не удалось удалить файлы
 
-                # Сохраняем ВСЕ неизменяемые объекты при обновлении поля
                 current_unique_link = profile.user_link
                 current_is_admin = profile.is_admin
                 current_is_moderated = profile.is_moderated
 
-                # Обновляем только разрешенные для изменения поля
                 profile.name = form_data["name"]
                 profile.website_or_social = form_data["website_or_social"] if form_data["website_or_social"] is not None else None
                 profile.activity_and_hobbies = form_data["activity_hobbies"] if form_data["activity_hobbies"] is not None else None
@@ -555,26 +560,26 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                 profile.is_in_mlm = form_data["is_in_mlm"] if form_data["is_in_mlm"] is not None else None
                 profile.language = form_data["language"] if form_data["language"] is not None else None
 
-                # Возвращаем неизменяемые поля
-                profile.user_link = current_unique_link  # Сохраняем старую ссылку
+                profile.user_link = current_unique_link
                 profile.is_admin = current_is_admin
                 profile.is_moderated = current_is_moderated
 
+                user.profile_creation_status = "True"
                 session.add(profile)
+
                 logger.info(f"Профиль обновлен, уникальная ссылка сохранена: {current_unique_link}")
 
-            # 5. Полная синхронизация хэштегов
+            # 5. Хэштеги
             if "hashtags" in form_data:
-                # Получаем ВСЕ текущие хэштеги профиля
+                logger.debug(f"[LOG] Начинается синхронизация хэштегов для профиля ID {profile.id}")
                 current_hashtags_stmt = select(Hashtag).join(ProfileHashtag).where(
                     ProfileHashtag.profile_id == profile.id)
                 current_hashtags_result = await session.execute(current_hashtags_stmt)
                 current_hashtags = {tag.tag: tag for tag in current_hashtags_result.scalars().all()}
 
-                # Получаем хэштеги из формы (нормализованные)
                 form_hashtags = {tag.strip().lower().lstrip("#") for tag in form_data["hashtags"] if tag.strip()}
+                logger.debug(f"[LOG] Хэштеги из формы: {form_hashtags}")
 
-                # Удаление связей с хэштегами которых нет в форме
                 for tag_name, tag_obj in current_hashtags.items():
                     if tag_name not in form_hashtags:
                         delete_stmt = delete(ProfileHashtag).where(
@@ -584,21 +589,17 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                         await session.execute(delete_stmt)
                         logger.debug(f"Удалена связь с хэштегом: {tag_name}")
 
-                # Получаем существующие хэштеги из БД (для всех тегов формы)
                 existing_tags_stmt = select(Hashtag).where(Hashtag.tag.in_(form_hashtags))
                 existing_tags_result = await session.execute(existing_tags_stmt)
                 existing_tags = {tag.tag: tag for tag in existing_tags_result.scalars().all()}
 
-                # Добавляем новые хэштеги и связи
                 for tag_name in form_hashtags:
-                    # Если хэштега нет в БД - создаем
                     if tag_name not in existing_tags:
                         new_hashtag = Hashtag(tag=tag_name)
                         session.add(new_hashtag)
-                        await session.flush()  # Получаем ID нового хэштега
+                        await session.flush()
                         existing_tags[tag_name] = new_hashtag
 
-                    # Проверяем, есть ли уже связь
                     link_exists = await session.execute(
                         select(ProfileHashtag).where(
                             ProfileHashtag.profile_id == profile.id,
@@ -607,7 +608,6 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                     )
                     link_exists = link_exists.scalar()
 
-                    # Если связи нет - создаем
                     if not link_exists:
                         session.add(ProfileHashtag(
                             profile_id=profile.id,
@@ -628,7 +628,5 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
         logger.exception(f"Непредвиденная ошибка: {e}")
         await session.rollback()
         raise HTTPException(status_code=500, detail="Ошибка сохранения данных в базе")
-
-
 
 
