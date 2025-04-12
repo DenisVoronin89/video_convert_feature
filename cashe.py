@@ -853,6 +853,7 @@ async def save_profile_to_db_without_video(
 
                     # Устанавливаем статус строкой
                     user.profile_creation_status = "True"
+                    user.profile_update_counter = (user.profile_update_counter or 0) + 1
 
                     session.add(profile)
                     logger.info(f"Обновлен профиль пользователя {user.id}, user_link сохранен: {current_user_link}")
@@ -883,6 +884,7 @@ async def save_profile_to_db_without_video(
 
                     user.is_profile_created = True
                     user.profile_creation_status = "True"
+                    user.profile_update_counter = (user.profile_update_counter or 0) + 1
                     session.add(new_profile)
                     await session.flush()
                     profile = new_profile

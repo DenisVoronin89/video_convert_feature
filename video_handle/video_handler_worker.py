@@ -515,6 +515,7 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
 
                 user.is_profile_created = True
                 user.profile_creation_status = "True"
+                user.profile_update_counter = (user.profile_update_counter or 0) + 1
                 session.add(new_profile)
                 await session.flush()
                 profile = new_profile
@@ -565,6 +566,7 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                 profile.is_moderated = current_is_moderated
 
                 user.profile_creation_status = "True"
+                user.profile_update_counter = (user.profile_update_counter or 0) + 1
                 session.add(profile)
 
                 logger.info(f"Профиль обновлен, уникальная ссылка сохранена: {current_unique_link}")
