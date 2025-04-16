@@ -30,6 +30,7 @@ class FormData(BaseModel):
     is_incognito: bool = Field(False, description="Флаг инкогнито пользователя")
     wallet_number: str = Field(min_length=1, max_length=100, description="Номер кошелька пользователя")
     language:Optional[str] = Field(None, max_length=55, description="Язык пользователя или регион")
+    last_transaction_hash: str = Field(..., max_length=100, description="Хэш последней транзакции пользователя")
 
 
     class Config:
@@ -51,7 +52,8 @@ class FormData(BaseModel):
                 "is_in_mlm": 1,
                 "is_incognito": False,
                 "wallet_number": "0x123abc456def",
-                "language": "English"
+                "language": "English",
+                "last_transaction_hash": "0x4a7e267c1b7b7d9e4e8f0a3c1b2d8e5f6a1b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7"
             }
         }
 

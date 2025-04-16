@@ -131,13 +131,15 @@ MIME-тип или расширение, но на самом деле явля�
     "is_incognito": false,
     "name": "Кусок ссанины",
     "wallet_number": "0x39b0B8cfa77fA65f36Ad186F649D36EBC7d4545",
-    "website_or_social": "https://twitter.com/johndoe"
+    "website_or_social": "https://twitter.com/johndoe",
+    "language": "English",
+    "last_transaction_hash": "0x4a7e267c1b7b7d9e4e8f0a3c1b2d8e5f6a1b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7"
   },
   "image_data": {
     "image_path": "/user_logo/81a5be00-00f3-4811-9825-522ff0638343_4bad43da-ee9e-4a6d-a703-5f6683806bc8_c66f50f4ecb6aaf160ae3bd590effe68.jpg"
   },
   "video_data": {
-    "video_path": "./video_temp/341bfb16-81ff-4802-b5a3-e10fe0370f3c_cat_cat.mp4"
+    "video_path": "./video_temp/c38570f2-0501-4538-8132-4e92211bb99d_cat_cat.mp4"
   }
 }
 
@@ -172,7 +174,8 @@ MIME-тип или расширение, но на самом деле явля�
     "is_incognito": false,
     "name": "Ебись все в рот!!!",
     "wallet_number": "0x39b0B8cfa77fA65f36Ad186F649D36EBC7d4545",
-    "website_or_social": "https://twitter.com/johndoe"
+    "website_or_social": "https://twitter.com/johndoe",
+    "last_transaction_hash": "0x4a7e267c1b7b7d9e4e8f0a3c1b2d8e5f6a1b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7"
   },
   "image_data": {
     "image_path": "/user_logo/81a5be00-00f3-4811-9825-522ff0638343_4bad43da-ee9e-4a6d-a703-5f6683806bc8_c66f50f4ecb6aaf160ae3bd590effe68.jpg"

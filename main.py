@@ -297,6 +297,7 @@ async def login(
                 "id": user.id,
                 "profile_creation_status": user.profile_creation_status,
                 "profile_update_counter": user.profile_update_counter,
+                "user_last_transaction_hash": user.last_transaction_hash,
                 "profile": profile_data,
                 "favorites": favorites,  # Теперь это список профилей с полной информацией
                 "tokens": tokens,

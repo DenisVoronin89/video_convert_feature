@@ -16,6 +16,8 @@ class User(Base):
     is_profile_created = Column(Boolean, default=False, nullable=False)
     profile_creation_status = Column(String(50), default=None, nullable=True)
     profile_update_counter = Column(Integer, default=0, nullable=True)
+    last_transaction_hash = Column(String(150), unique=True, nullable=True)
+
 
     __table_args__ = (
         Index('ix_user_wallet_number', 'wallet_number'),
