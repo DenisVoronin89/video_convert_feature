@@ -533,26 +533,54 @@ async def get_profile_by_wallet_number(wallet_number: str):
 async def get_profile_by_username(username: str) -> List[dict]:
     """
     Логика получения профилей пользователя по имени (асинхронно).
-    Поиск осуществляется по полному совпадению имени, но регистронезависимо.
+    Поиск осуществляется по полному совпадению имени (регистронезависимо),
+    с нормализацией пробелов и учетом е/ё как одинаковых букв.
 
-    :param username: Имя пользователя для поиска (полное совпадение, регистронезависимо).
-    :return: Список словарей с информацией о профилях.
-    :raises HTTPException: Если произошла ошибка.
+    :param username: Имя пользователя для поиска
+    :return: Список словарей с информацией о профилях
+    :raises HTTPException: Если произошла ошибка
     """
     try:
+        # Функция для нормализации строки поиска
+        def normalize_search_term(term: str) -> str:
+            term = term.strip().lower()
+            term = ' '.join(term.split())  # Нормализация пробелов
+            term = term.replace('ё', 'е')  # Для поиска считаем ё == е
+            return term
+
+        # Функция для сравнения имен в БД
+        def normalize_db_name(name: str) -> str:
+            name = name.strip().lower()
+            name = ' '.join(name.split())  # Нормализация пробелов
+            name = name.replace('ё', 'е')  # Для поиска считаем ё == е
+            return name
+
+        search_term = normalize_search_term(username)
+
         async with get_db_session_for_worker() as db:
-            # Поиск профилей с загрузкой связанных данных
+            # Создаем SQL-функцию для нормализации имен в БД
+            normalized_name = func.lower(
+                func.regexp_replace(
+                    func.regexp_replace(
+                        func.trim(UserProfiles.name),
+                        '\s+', ' ', 'g'
+                    ),
+                    'ё', 'е', 'g'
+                )
+            )
+
             query = select(UserProfiles).filter(
-                func.lower(UserProfiles.name) == func.lower(username)
+                normalized_name == search_term
             ).options(
                 selectinload(UserProfiles.profile_hashtags).selectinload(ProfileHashtag.hashtag),
                 selectinload(UserProfiles.user)
             )
+
             result = await db.execute(query)
             profiles = result.scalars().all()
 
             if not profiles:
-                logger.error(f"Профили с именем '{username}' не найдены.")
+                logger.error(f"Профили с именем '{username}' (нормализовано: '{search_term}') не найдены.")
                 raise HTTPException(status_code=404, detail="Профили с таким именем не найдены.")
 
             # Формирование данных профилей
@@ -560,7 +588,7 @@ async def get_profile_by_username(username: str) -> List[dict]:
             for profile in profiles:
                 profile_data = {
                     "id": profile.id,
-                    "name": profile.name,
+                    "name": profile.name,  # Оригинальное имя (без нормализации)
                     "user_logo_url": profile.user_logo_url,
                     "video_url": profile.video_url,
                     "preview_url": profile.preview_url,
@@ -569,7 +597,7 @@ async def get_profile_by_username(username: str) -> List[dict]:
                     "is_moderated": profile.is_moderated,
                     "is_incognito": profile.is_incognito,
                     "is_in_mlm": profile.is_in_mlm,
-                    "adress": [profile.adress] if profile.adress else [],  # Преобразуем в список
+                    "adress": [profile.adress] if profile.adress else [],
                     "city": profile.city,
                     "coordinates": await process_coordinates_for_response(profile.coordinates),
                     "followers_count": profile.followers_count,
@@ -586,7 +614,7 @@ async def get_profile_by_username(username: str) -> List[dict]:
                 }
                 profiles_data.append(profile_data)
 
-            logger.info(f"Найдено {len(profiles)} профилей с именем '{username}'.")
+            logger.info(f"Найдено {len(profiles)} профилей для запроса '{username}' (нормализовано: '{search_term}')")
             return profiles_data
 
     except HTTPException as e:
