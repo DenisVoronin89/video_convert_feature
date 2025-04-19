@@ -17,6 +17,7 @@ class User(Base):
     profile_creation_status = Column(String(50), default=None, nullable=True)
     profile_update_counter = Column(Integer, default=0, nullable=True)
     last_transaction_hash = Column(String(150), unique=True, nullable=True)
+    user_profile_form_data = Column(JSONB, nullable=True)
 
 
     __table_args__ = (
@@ -50,6 +51,7 @@ class UserProfiles(Base):
     followers_count = Column(Integer, default=0, nullable=True)
     language = Column(String(55), nullable=True)
     user_link = Column(String(255), nullable=True, unique=True)
+    is_adult_content = Column(Boolean, default=False, nullable=True)
 
     hashtags = relationship('Hashtag', secondary='profile_hashtags', back_populates='profiles')
     profile_hashtags = relationship('ProfileHashtag', back_populates='profile', cascade="all, delete-orphan")

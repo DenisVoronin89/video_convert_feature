@@ -139,7 +139,7 @@ MIME-тип или расширение, но на самом деле явля�
     "image_path": "/user_logo/81a5be00-00f3-4811-9825-522ff0638343_4bad43da-ee9e-4a6d-a703-5f6683806bc8_c66f50f4ecb6aaf160ae3bd590effe68.jpg"
   },
   "video_data": {
-    "video_path": "./video_temp/c38570f2-0501-4538-8132-4e92211bb99d_cat_cat.mp4"
+    "video_path": "./video_temp/5c0fe548-14a6-4dfe-893a-7247f2078865_cat_cat.mp4"
   }
 }
 

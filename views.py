@@ -326,6 +326,7 @@ async def get_all_profiles(
                     "followers_count": profile.followers_count,
                     "website_or_social": profile.website_or_social,
                     "user_link": profile.user_link,
+                    "is_adult_content": profile.is_adult_content,
                     "user": {
                         "id": profile.user.id,
                         "wallet_number": profile.user.wallet_number,
@@ -437,6 +438,7 @@ async def get_profiles_by_city(city: str, page: int, sort_by: str, per_page: int
                     "followers_count": profile.followers_count,
                     "website_or_social": profile.website_or_social,
                     "user_link": profile.user_link,
+                    "is_adult_content": profile.is_adult_content,
                     "user": {
                         "id": profile.user.id,
                         "wallet_number": profile.user.wallet_number,
@@ -513,6 +515,7 @@ async def get_profile_by_wallet_number(wallet_number: str):
                 "is_admin": profile.is_admin,
                 "language": profile.language,
                 "user_link": profile.user_link,
+                "is_adult_content": profile.is_adult_content,
                 "user": {
                     "id": user.id,
                     "wallet_number": user.wallet_number
@@ -607,6 +610,7 @@ async def get_profile_by_username(username: str) -> List[dict]:
                     "is_admin": profile.is_admin,
                     "language": profile.language,
                     "user_link": profile.user_link,
+                    "is_adult_content": profile.is_adult_content,
                     "user": {
                         "id": profile.user.id,
                         "wallet_number": profile.user.wallet_number
@@ -714,6 +718,7 @@ async def fetch_nearby_profiles(longitude: float, latitude: float, radius: int =
                                 "is_admin": profile.is_admin,
                                 "language": profile.language,
                                 "user_link": profile.user_link,
+                                "is_adult_content": profile.is_adult_content,
                                 "user": {  # Добавляем информацию о пользователе
                                     "id": profile.user.id,
                                     "wallet_number": profile.user.wallet_number
@@ -809,6 +814,7 @@ async def get_profiles_for_moderation(
                     "followers_count": profile.followers_count,
                     "website_or_social": profile.website_or_social,
                     "user_link": profile.user_link,
+                    "is_adult_content": profile.is_adult_content,
                     "user": {
                         "id": profile.user.id,
                         "wallet_number": profile.user.wallet_number,
@@ -940,14 +946,16 @@ async def moderate_profile(
     user_id: int,  # ID администратора из токена
     profile_id: int,  # ID профиля для модерации
     moderation: bool,  # True — профиль прошел модерацию, False — не прошел
+    is_adult_content: bool   # флаг 18+ контента
 ) -> dict:
     """
-    Модерирует профиль пользователя.
+    Модерирует профиль пользователя с учетом флага взрослого контента.
 
     Параметры:
         user_id (int): ID администратора.
         profile_id (int): ID профиля для модерации.
         moderation (bool): Результат модерации (True — одобрено, False — отклонено).
+        is_adult_content (bool): Флаг взрослого контента (по умолчанию False).
 
     Возвращает:
         dict: Сообщение о результате модерации.
@@ -981,22 +989,27 @@ async def moderate_profile(
                 raise HTTPException(status_code=404, detail="Профиль не найден, да.")
 
             # Обновляем профиль в зависимости от результата модерации
+            update_values = {
+                "is_adult_content": is_adult_content  # Всегда обновляем флаг взрослого контента
+            }
+
             if moderation:
-                # Профиль прошел модерацию, да
-                stmt = (
-                    update(UserProfiles)
-                    .where(UserProfiles.id == profile_id)
-                    .values(is_moderated=True)
-                )
-                message = "Профиль успешно прошел модерацию, да."
+                # Профиль прошел модерацию
+                update_values["is_moderated"] = True
+                message = f"Профиль успешно прошел модерацию (18+: {is_adult_content}), да."
             else:
-                # Профиль не прошел модерацию, да
-                stmt = (
-                    update(UserProfiles)
-                    .where(UserProfiles.id == profile_id)
-                    .values(is_moderated=False, is_incognito=True)
-                )
+                # Профиль не прошел модерацию
+                update_values.update({
+                    "is_moderated": False,
+                    "is_incognito": True
+                })
                 message = "Профиль не прошел модерацию и теперь скрыт, да."
+
+            stmt = (
+                update(UserProfiles)
+                .where(UserProfiles.id == profile_id)
+                .values(**update_values)
+            )
 
             await session.execute(stmt)
             await session.commit()
@@ -1074,7 +1087,8 @@ async def regenerate_user_link(profile_id: int):
                 "website_or_social": profile.website_or_social,
                 "is_admin": profile.is_admin,
                 "language": profile.language,
-                "user_link": profile.user_link
+                "user_link": profile.user_link,
+                "is_adult_content": profile.is_adult_content
             }
 
             # 6. Получаем избранное (полные данные профилей, а не только ID)
@@ -1158,7 +1172,8 @@ async def get_profile_by_link(user_link: str):
                 "website_or_social": profile.website_or_social,
                 "is_admin": profile.is_admin,
                 "language": profile.language,
-                "user_link": profile.user_link
+                "user_link": profile.user_link,
+                "is_adult_content": profile.is_adult_content
             }
 
             # 4. Получаем избранное (для текущего пользователя, если авторизован)

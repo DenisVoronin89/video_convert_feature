@@ -516,7 +516,6 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                 user.is_profile_created = True
                 user.profile_creation_status = "True"
                 user.profile_update_counter = (user.profile_update_counter or 0) + 1
-                user.last_transaction_hash=form_data["last_transaction_hash"]
                 session.add(new_profile)
                 await session.flush()
                 profile = new_profile
@@ -568,7 +567,6 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
 
                 user.profile_creation_status = "True"
                 user.profile_update_counter = (user.profile_update_counter or 0) + 1
-                user.last_transaction_hash = form_data["last_transaction_hash"]
                 session.add(profile)
 
                 logger.info(f"Профиль обновлен, уникальная ссылка сохранена: {current_unique_link}")
@@ -619,6 +617,11 @@ async def save_profile_to_db(session: AsyncSession, form_data: FormData, video_u
                         ))
 
                 logger.info(f"Хэштеги синхронизированы. Оставлено: {len(form_hashtags)}")
+
+            # 6. Очищаем временные данные транзакции
+            user.last_transaction_hash = None
+            user.user_profile_form_data = None
+            session.add(user)
 
         await session.commit()
         logger.info(f"Данные успешно сохранены для кошелька {wallet_number}")

@@ -27,7 +27,7 @@ from sqlalchemy.util import await_only
 
 from fake_profiles import generate_profiles
 
-from database import init_db, engine, get_db_session
+from database import init_db, engine, get_db_session, get_db_session_for_worker
 from logging_config import get_logger
 from video_handle.video_handler_publisher import publish_task
 from views import (
@@ -274,7 +274,8 @@ async def login(
                     "website_or_social": profile.website_or_social,  # Добавляем недостающие поля
                     "is_admin": profile.is_admin,
                     "language": profile.language,
-                    "user_link": profile.user_link
+                    "user_link": profile.user_link,
+                    "is_adult_content": profile.is_adult_content
                 }
 
             # Получаем избранное через get_favorites_from_cache
@@ -298,6 +299,7 @@ async def login(
                 "profile_creation_status": user.profile_creation_status,
                 "profile_update_counter": user.profile_update_counter,
                 "user_last_transaction_hash": user.last_transaction_hash,
+                "user_profile_form_data": user.user_profile_form_data,
                 "profile": profile_data,
                 "favorites": favorites,  # Теперь это список профилей с полной информацией
                 "tokens": tokens,
@@ -435,131 +437,100 @@ async def check_form(data: FormData, current_user: TokenData = Depends(check_use
 # Эндпоинт сохранения профиля
 @app.post("/api/save_profile/")
 async def save_profile(
-    profile_data: FormData,
-    image_data: dict,
-    video_data: dict,
-    new_user_image: bool = True,  # Новый параметр
-    _: TokenData = Depends(check_user_token)
+        profile_data: FormData,
+        image_data: dict,
+        video_data: dict,
+        new_user_image: bool = True,
+        transaction_success_status: bool = False,
+        token_data: TokenData = Depends(check_user_token)
 ):
     """
-    Получение данных профиля из формы, пути к изображению и видео (в виде JSON),
-    проверка путей и отправка задачи на обработку в Redis.
+    Получение данных профиля из формы, путей к изображению и видео.
+    Если transaction_success_status=False - сохраняем данные в таблицу users.
+    Если True - выполняем оригинальную логику обработки профиля.
+    Публикация данных в канал Редис и отправка данных в микросервис для обработки видео, загрузки в облако и сохранение профиля в БД
     """
     try:
         # Преобразование данных формы в словарь
         form_data_dict = profile_data.dict()
-
-        # Сериализация данных формы (HttpUrl в строку)
         form_data_dict = await serialize_form_data(form_data_dict)
 
-        # Лог полученных данных (смотреть что полетит в канал)
-        logger.info(f"Получены данные профиля: {form_data_dict}")
-        logger.info(f"Получены данные о изображении: {image_data}")
-        logger.info(f"Получены данные о видео: {video_data}")
+        if not transaction_success_status:
+            # Режим сохранения данных транзакции
+            user_id = token_data.user_id
+            last_transaction_hash = form_data_dict.get("last_transaction_hash")
 
-        # Извлечение номера кошелька
-        wallet_number = form_data_dict.get("wallet_number")
-        if not wallet_number:
-            raise ValueError("Номер кошелька не указан.")
+            if not last_transaction_hash:
+                raise ValueError("Хэш транзакции не указан")
 
-        # Извлечение путей к файлам из JSON
-        image_path = image_data.get("image_path")
-        video_path = video_data.get("video_path")
+            # Сохраняем данные в таблицу users
+            async with get_db_session_for_worker() as db:
+                user = await db.get(User, user_id)
+                if not user:
+                    raise ValueError("Пользователь не найден")
 
-        if not video_path:
-            raise ValueError("Путь к видео не был найден в данных JSON.")
+                user.last_transaction_hash = last_transaction_hash
+                user.user_profile_form_data = form_data_dict
+                await db.commit()
 
-        if new_user_image and not image_path:
-            raise ValueError("Путь к изображению не был найден в данных JSON.")
+            return {"message": "Данные транзакции успешно сохранены"}
 
-        logger.info(f"Путь к изображению: {image_path}")
-        logger.info(f"Путь к видео: {video_path}")
-
-        # Получение директорий из состояния приложения
-        created_dirs = app.state.created_dirs
-        if not created_dirs:
-            logger.error("Каталоги для сохранения файлов не были инициализированы.")
-            raise HTTPException(status_code=500, detail="Ошибка при инициализации каталогов.")
-
-        # Преобразование путей в абсолютные, если они относительные
-        absolute_video_path = os.path.abspath(video_path)
-        logger.info(f"Абсолютный путь к видео: {absolute_video_path}")
-
-        # Проверка существования видео
-        if not os.path.isfile(absolute_video_path):
-            logger.error(f"Путь к видео не ведет к файлу: {absolute_video_path}")
-            raise HTTPException(status_code=400, detail="Указанный путь к видео не ведет к файлу.")
-
-        # Обработка изображения
-        user_logo_path = None
-        if new_user_image:
-            # Если new_user_image == True, обрабатываем новое изображение
-            absolute_image_path = os.path.abspath(image_path)
-            logger.info(f"Абсолютный путь к изображению: {absolute_image_path}")
-
-            # Проверка существования изображения
-            if not os.path.isfile(absolute_image_path):
-                logger.error(f"Путь к изображению не ведет к файлу: {absolute_image_path}")
-                raise HTTPException(status_code=400, detail="Указанный путь к изображению не ведет к файлу.")
-
-            # Перенос изображения в постоянную папку "user_logo"
-            try:
-                # Перенос изображения и получение пути
-                user_logo_path = await move_image_to_user_logo(absolute_image_path, created_dirs)
-                logger.info(f"Изображение успешно перемещено в постоянную папку: {user_logo_path}")
-            except Exception as e:
-                logger.error(f"Ошибка при перемещении изображения: {str(e)}")
-                raise HTTPException(status_code=500, detail=f"Ошибка при перемещении изображения: {str(e)}")
         else:
-            # Если new_user_image == False, используем существующее изображение
-            user_logo_path = image_path  # Берём ссылку на изображение из image_data
-            logger.info(f"Используется существующее изображение: {user_logo_path}")
+            # Оригинальная логика обработки профиля (как было)
+            wallet_number = form_data_dict.get("wallet_number")
+            if not wallet_number:
+                raise ValueError("Номер кошелька не указан.")
 
-        # Преобразование user_logo_path в строку, так как это объект HttpUrl (TODO объединить бы с сериализацией формы)
-        if isinstance(user_logo_path, HttpUrl):
-            user_logo_path = str(user_logo_path)
+            image_path = image_data.get("image_path")
+            video_path = video_data.get("video_path")
 
-        # Убираем точку в начале, если она есть !!!! МАКСУ ТАК НАДО!!!!!
-        user_logo_path = user_logo_path.lstrip('.')
+            if not video_path:
+                raise ValueError("Путь к видео не был найден в данных JSON.")
 
-        # Лог начала обработки запроса
-        logger.info("Обработка данных профиля...")
+            if new_user_image and not image_path:
+                raise ValueError("Путь к изображению не был найден в данных JSON.")
 
-        # Подключение к Redis из состояния приложения
-        redis_client = app.state.redis_client
-        logger.info("Соединение с Redis для публикации задачи в канал установлено.")
+            created_dirs = app.state.created_dirs
+            if not created_dirs:
+                logger.error("Каталоги для сохранения файлов не были инициализированы.")
+                raise HTTPException(status_code=500, detail="Ошибка при инициализации каталогов.")
 
-        # Лог задачи перед отправкой в Redis
-        logger.info(f"Публикуемые данные в Redis: {{"
-                    f"input_path: {absolute_video_path}, "
-                    f"output_path: {created_dirs['output_video']}, "
-                    f"preview_path: {created_dirs['output_preview']}, "
-                    f"user_logo_url: {user_logo_path}, "
-                    f"wallet_number: {wallet_number}, "
-                    f"form_data: {form_data_dict}}}")
+            absolute_video_path = os.path.abspath(video_path)
+            if not os.path.isfile(absolute_video_path):
+                logger.error(f"Путь к видео не ведет к файлу: {absolute_video_path}")
+                raise HTTPException(status_code=400, detail="Указанный путь к видео не ведет к файлу.")
 
-        # Публикация задачи в Redis
-        await publish_task(
-            redis_client,
-            input_path=absolute_video_path,  # Путь к видео
-            output_path=created_dirs["output_video"],  # Путь для итогового видео
-            preview_path=created_dirs["output_preview"],  # Путь для превью
-            user_logo_url=user_logo_path,  # Путь к изображению
-            wallet_number=wallet_number,  # Кошелек
-            form_data=form_data_dict  # Данные формы для сохранения в БД
-        )
-        logger.info("Задача успешно отправлена в Redis.")
+            user_logo_path = None
+            if new_user_image:
+                absolute_image_path = os.path.abspath(image_path)
+                if not os.path.isfile(absolute_image_path):
+                    logger.error(f"Путь к изображению не ведет к файлу: {absolute_image_path}")
+                    raise HTTPException(status_code=400, detail="Указанный путь к изображению не ведет к файлу.")
 
-        # Ответ клиенту
-        return {"message": "Ваш профиль успешно сохранен и отправлен на модерацию."}
+                user_logo_path = await move_image_to_user_logo(absolute_image_path, created_dirs)
+            else:
+                user_logo_path = image_path
+
+            if isinstance(user_logo_path, HttpUrl):
+                user_logo_path = str(user_logo_path)
+            user_logo_path = user_logo_path.lstrip('.')
+
+            redis_client = app.state.redis_client
+            await publish_task(
+                redis_client,
+                input_path=absolute_video_path,
+                output_path=created_dirs["output_video"],
+                preview_path=created_dirs["output_preview"],
+                user_logo_url=user_logo_path,
+                wallet_number=wallet_number,
+                form_data=form_data_dict
+            )
+
+            return {"message": "Ваш профиль успешно сохранен и отправлен на модерацию."}
 
     except ValueError as e:
         logger.error(f"Ошибка при обработке данных: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
-    except redis.RedisError as e:
-        # Лог ошибок при работе с Redis
-        logger.error(f"Ошибка при подключении или публикации в Redis: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Ошибка при сохранении профиля в Redis: {str(e)}")
     except Exception as e:
         logger.error(f"Ошибка при сохранении профиля: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при сохранении профиля: {str(e)}")
@@ -568,30 +539,66 @@ async def save_profile(
 # Эндпоинт для сохранения юзера в БД без видео (нет смысла запускать фоновую задачу)
 @app.post("/api/save_profile_without_video/")
 async def create_or_update_user_profile(
-    form_data: FormData,
-    image_data: dict,
-    new_user_image: bool,
-    delete_video: bool,
-    _: TokenData = Depends(check_user_token)
+        form_data: FormData,
+        image_data: dict,
+        new_user_image: bool,
+        delete_video: bool,
+        transaction_success_status: bool = False,  # Новый параметр
+        token_data: TokenData = Depends(check_user_token)
 ):
     """
     Функция для создания или обновления профиля пользователя без видео.
+    Если transaction_success_status=False - сохраняем данные транзакции.
+    Если True - выполняем оригинальную логику сохранения профиля.
     """
-    # Получение директорий из состояния приложения
-    created_dirs = app.state.created_dirs
-    if not created_dirs:
-        logger.error("Каталоги для сохранения файлов не были инициализированы.")
-        raise HTTPException(status_code=500, detail="Ошибка при инициализации каталогов.")
+    if not transaction_success_status:
+        # Режим сохранения данных транзакции
+        try:
+            user_id = token_data.user_id
+            last_transaction_hash = form_data.last_transaction_hash
 
-    try:
-        # Вызываем функцию сохранения профиля
-        return await save_profile_to_db_without_video(form_data, image_data, created_dirs, new_user_image, delete_video)
-    except Exception as e:
-        logger.error(f"Ошибка в эндпоинте /save_profile_without_video/: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Непредвиденная ошибка. Попробуйте позже."
-        )
+            if not last_transaction_hash:
+                raise ValueError("Хэш транзакции не указан")
+
+            async with get_db_session_for_worker() as db:
+                user = await db.get(User, user_id)
+                if not user:
+                    raise ValueError("Пользователь не найден")
+
+                user.last_transaction_hash = last_transaction_hash
+                user.user_profile_form_data = form_data.dict()
+                await db.commit()
+
+            return {"message": "Данные транзакции успешно сохранены"}
+
+        except Exception as e:
+            logger.error(f"Ошибка сохранения данных транзакции: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Ошибка сохранения данных транзакции: {str(e)}"
+            )
+    else:
+        # Оригинальная логика сохранения профиля
+        created_dirs = app.state.created_dirs
+        if not created_dirs:
+            logger.error("Каталоги для сохранения файлов не были инициализированы.")
+            raise HTTPException(status_code=500, detail="Ошибка при инициализации каталогов.")
+
+        try:
+            # Вызываем функцию сохранения профиля
+            return await save_profile_to_db_without_video(
+                form_data,
+                image_data,
+                created_dirs,
+                new_user_image,
+                delete_video
+            )
+        except Exception as e:
+            logger.error(f"Ошибка в эндпоинте /save_profile_without_video/: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Непредвиденная ошибка. Попробуйте позже."
+            )
 
 
 # ЭНДПОИНТЫ ДЛЯ РАБОТЫ С ИЗБРАННЫМ И СЧЕТЧИКАМИ ПОДПИСЧИКОВ
@@ -999,6 +1006,7 @@ async def moderate_profile_endpoint(
     admin_wallet: str,  # Нехэшированный кошелек администратора
     profile_id: int,  # ID профиля для модерации
     moderation: bool,  # True — профиль прошел модерацию, False — не прошел
+    is_adult_content: bool,
     token_data: TokenData = Depends(check_user_token)
 ):
     """
@@ -1018,7 +1026,7 @@ async def moderate_profile_endpoint(
     try:
         # Получаем user_id из токена
         user_id = token_data.user_id
-        return await moderate_profile(user_id, profile_id, moderation)
+        return await moderate_profile(user_id, profile_id, moderation, is_adult_content)
     except HTTPException as e:
         raise e
     except Exception as e:

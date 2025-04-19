@@ -52,10 +52,6 @@ AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 
 
-
-
-
-
 # ЛОГИКА РАБОТЫ С ИЗБРАННЫМ
 
 # Увеличить счётчик подписчиков
@@ -512,6 +508,7 @@ async def get_profiles_by_hashtag(
                     "is_admin": profile.is_admin,
                     "language": profile.language,
                     "user_link": profile.user_link,
+                    "is_adult_content": profile.is_adult_content,
                     "user": {  # Добавляем информацию о пользователе
                         "id": profile.user.id,
                         "wallet_number": profile.user.wallet_number
@@ -610,6 +607,7 @@ async def get_profiles_by_ids(profile_ids: List[int]) -> List[dict]:
                         "is_admin": profile.is_admin,
                         "language": profile.language,
                         "user_link": profile.user_link,
+                        "is_adult_content": profile.is_adult_content,
                         "user": {
                             "id": profile.user.id,
                             "wallet_number": profile.user.wallet_number
@@ -952,6 +950,11 @@ async def save_profile_to_db_without_video(
 
                     logger.info(f"Хэштеги обновлены. Актуальных хэштегов: {len(requested_tags)}")
 
+                # Очищаем временные данные транзакции перед коммитом
+                user.last_transaction_hash = None
+                user.user_profile_form_data = None
+                session.add(user)
+
                 await session.commit()
 
                 message = "Профиль успешно обновлен" if not is_new_profile else "Профиль успешно сохранен"
@@ -1233,6 +1236,7 @@ async def fetch_and_cache_profiles(redis_client: redis.Redis) -> tuple[int, int]
                         "is_admin": profile.is_admin,
                         "language": profile.language,
                         "user_link": profile.user_link,
+                        "is_adult_content": profile.is_adult_content,
                         "user": user_data,  # Добавлен блок данных о пользователе
                     }
 
